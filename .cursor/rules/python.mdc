@@ -1,0 +1,70 @@
+﻿---
+description: Python development rules for Nick Matau Clipper project
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Python Development Rules
+
+## Code Style (MUST)
+- **MUST** use type hints for all function parameters and return types
+- **MUST** use dataclasses for data structures (not plain dicts)
+- **MUST** include docstrings for all public functions and classes
+- **MUST** use async/await for all API calls (Deepgram, Gemini, Sheets)
+- **MUST NOT** hardcode API keys - use environment variables
+- **MUST NOT** use `print()` for logging - use the logging module
+
+## Naming Conventions
+- Classes: PascalCase (e.g., `VideoIngester`, `ClipAnalyzer`)
+- Functions: snake_case (e.g., `extract_audio`, `analyze_for_clips`)
+- Constants: UPPER_SNAKE_CASE (e.g., `DEFAULT_QUALITY`, `MAX_RETRIES`)
+- Private methods: prefix with underscore (e.g., `_process_response`)
+
+## File Structure
+- One class per file (except dataclasses which can be grouped)
+- Imports at top, grouped: stdlib, third-party, local
+- Constants after imports
+- Main class definition
+- Utility functions at bottom
+
+## Error Handling
+- **MUST** use try/except for API calls
+- **MUST** implement retry logic with exponential backoff for APIs
+- **SHOULD** save intermediate results before risky operations
+- **SHOULD** provide meaningful error messages with context
+
+## Testing
+- Test files in `tests/` directory
+- Test file naming: `test_<module>.py`
+- Use pytest fixtures for shared setup
+- Mock external APIs in unit tests
+
+## Module Contracts
+Each module has a clear input/output contract. Do not modify these without updating ARCHITECTURE.md:
+
+### Transcriber
+- Input: WAV audio file path
+- Output: TranscriptData dataclass
+
+### Analyzer  
+- Input: timestamped_transcript string
+- Output: List of clip candidate dicts
+
+### Ingester
+- Input: Video file path
+- Output: WAV path + VideoMetadata
+
+### Extractor
+- Input: Video path + clip timestamps list
+- Output: List of ClipResult
+
+## Before Coding
+- Read `docs/TASKS.md` to understand current progress
+- Read `docs/ARCHITECTURE.md` for data flow
+- Check if the module has a specific task document in `docs/`
+
+## After Coding
+- Update task checkboxes in `docs/TASKS.md`
+- Run tests: `pytest tests/test_<module>.py -v`
+- Run type check: `mypy src/<module>.py`

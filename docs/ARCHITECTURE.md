@@ -8,34 +8,40 @@
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                      │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐      │
-│  │  VIDEO   │───►│  AUDIO   │───►│TRANSCRIPT│───►│  CLIPS   │      │
-│  │  INPUT   │    │EXTRACTION│    │  + AI    │    │  OUTPUT  │      │
+│  │ YOUTUBE  │───►│  VIDEO   │───►│  AUDIO   │───►│TRANSCRIPT│      │
+│  │   URL    │    │ DOWNLOAD │    │EXTRACTION│    │  + AI    │      │
 │  └──────────┘    └──────────┘    └──────────┘    └──────────┘      │
 │       │               │               │               │              │
 │       ▼               ▼               ▼               ▼              │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐      │
-│  │ ingester │    │transcriber│   │ analyzer │    │ extractor│      │
+│  │downloader│    │ ingester │    │transcriber│   │ analyzer │      │
 │  │   .py    │    │   .py    │    │   .py    │    │   .py    │      │
+│  │   ✅     │    │    ✅    │    │    ✅    │    │   🔴     │      │
 │  └──────────┘    └──────────┘    └──────────┘    └──────────┘      │
-│       │               │               │               │              │
 │       │               │               │               │              │
 │       ▼               ▼               ▼               ▼              │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐      │
-│  │  FFmpeg  │    │ Deepgram │    │  Gemini  │    │  FFmpeg  │      │
-│  │          │    │ Nova-3   │    │ 2.5 Pro  │    │          │      │
+│  │  yt-dlp  │    │  FFmpeg  │    │ Deepgram │    │  Gemini  │      │
+│  │          │    │          │    │ Nova-3   │    │ 2.5 Pro  │      │
 │  └──────────┘    └──────────┘    └──────────┘    └──────────┘      │
 │                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │                     CLIPS OUTPUT                              │   │
+│  │  ┌──────────┐    ┌──────────┐    ┌──────────┐               │   │
+│  │  │ extractor│───►│  sheets  │───►│  OUTPUT  │               │   │
+│  │  │   .py    │    │   .py    │    │  CLIPS   │               │   │
+│  │  │   🔴     │    │   🔴     │    │   MP4    │               │   │
+│  │  └──────────┘    └──────────┘    └──────────┘               │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                      │
 │  ┌─────────────────────────────────────────────────────────────┐    │
-│  │                      ORCHESTRATOR (main.py)                  │    │
+│  │                      ORCHESTRATOR (main.py) ✅               │    │
 │  │    CLI Interface │ Progress Logging │ Error Handling         │    │
 │  └─────────────────────────────────────────────────────────────┘    │
 │                                                                      │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │                   REVIEW QUEUE (sheets.py)                   │    │
-│  │              Google Sheets │ Approval Workflow               │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
+
+Legend: ✅ = Implemented, 🔴 = Not Started
 ```
 
 ---
@@ -44,23 +50,39 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                           main.py (CLI)                              │
-│  Commands: process | transcribe | analyze | extract                  │
+│                           main.py (CLI) ✅                           │
+│  Commands: download | transcribe | transcribe-url | process         │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │
-         ┌──────────────────────┼──────────────────────┐
-         │                      │                      │
-         ▼                      ▼                      ▼
+    ┌───────────────────────────┼───────────────────────────┐
+    │                           │                           │
+    ▼                           ▼                           ▼
 ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│   ingester.py   │   │ transcriber.py  │   │   analyzer.py   │
+│ downloader.py ✅│   │  ingester.py ✅ │   │transcriber.py ✅│
 │                 │   │                 │   │                 │
-│ VideoIngester   │   │  Transcriber    │   │  ClipAnalyzer   │
-│ VideoMetadata   │   │  Word           │   │                 │
-│                 │   │  Utterance      │   │                 │
-│ Input:  Video   │   │ Input:  WAV     │   │ Input: Transcript│
-│ Output: WAV +   │   │ Output: Timestamped│ │ Output: Clips[] │
-│         Metadata│   │         Transcript│  │                 │
+│YouTubeDownloader│   │ VideoIngester   │   │  Transcriber    │
+│DownloadResult   │   │ VideoMetadata   │   │  Word           │
+│                 │   │                 │   │  TranscriptData │
+│Input: YouTube   │   │ Input:  Video   │   │ Input:  WAV/MP3 │
+│       URL       │   │ Output: WAV +   │   │ Output: Timestamped│
+│Output: MP4      │   │         Metadata│   │         Transcript│
 └────────┬────────┘   └────────┬────────┘   └────────┬────────┘
+         │                     │                     │
+         ▼                     ▼                     ▼
+    ┌─────────┐          ┌─────────┐          ┌─────────┐
+    │ yt-dlp  │          │ FFmpeg  │          │Deepgram │
+    │         │          │ ffprobe │          │ Nova-3  │
+    └─────────┘          └─────────┘          └─────────┘
+                                                    │
+                                                    ▼
+                                          ┌─────────────────┐
+                                          │   analyzer.py   │
+                                          │                 │
+                                          │  ClipAnalyzer   │
+                                          │                 │
+                                          │Input: Transcript│
+                                          │Output: Clips[]  │
+                                          └────────┬────────┘
          │                      │                      │
          │                      ▼                      │
          │            ┌─────────────────┐              │
@@ -100,7 +122,28 @@
 
 ## Data Flow Detail
 
-### Step 1: Video Ingestion
+### Step 0: YouTube Download (NEW ✅)
+```python
+# Input
+youtube_url: str = "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# Process
+downloader = YouTubeDownloader(output_dir="./outputs")
+result = downloader.download(youtube_url)
+
+# Output
+DownloadResult(
+    video_path="outputs/Video Title.mp4",
+    title="Video Title",
+    duration_seconds=12854.38,
+    channel="Channel Name",
+    video_id="VIDEO_ID",
+    thumbnail_url="https://...",
+    description="Video description..."
+)
+```
+
+### Step 1: Video Ingestion ✅
 ```python
 # Input
 video_path: str = "stream_2024_01_14.mp4"
@@ -123,31 +166,39 @@ VideoMetadata(
 )
 ```
 
-### Step 2: Transcription
+### Step 2: Transcription ✅
 ```python
 # Input
-audio_path: str = "stream_2024_01_14.wav"
+audio_path: str = "outputs/Israel_Palestine_audio.mp3"  # 82MB MP3
 
 # Process
-transcriber = Transcriber(api_key)
-transcript_data = await transcriber.transcribe(audio_path)
+transcriber = Transcriber()  # Uses DEEPGRAM_API_KEY from .env
+transcript_data = transcriber.transcribe_sync(audio_path)
 
-# Output
-{
-    "full_transcript": "So I was thinking about this whole situation...",
-    "timestamped_transcript": "[00:00:05] Speaker 0: So I was thinking...\n[00:00:12] Speaker 1: Yeah, what's your take?",
-    "words": [
-        Word(text="So", start=5.2, end=5.4, confidence=0.99, speaker=0),
-        Word(text="I", start=5.5, end=5.6, confidence=0.98, speaker=0),
-        ...
+# Output (tested with 3.5-hour video)
+TranscriptData(
+    full_transcript="Tomorrow and got rid of the constitution...",
+    timestamped_transcript="""
+        [00:00:00] Speaker 0.0: Tomorrow and got rid of the constitution...
+        [00:00:07] Speaker 1.0: I mean, I believe that...
+        [00:00:10] Speaker 0.0: Right.
+    """,
+    words=[
+        Word(text="Tomorrow", start=0.08, end=0.48, confidence=0.99, speaker=0),
+        Word(text="and", start=0.48, end=0.56, confidence=0.99, speaker=0),
+        # ... 32,234 total words
     ],
-    "word_count": 45234,
-    "duration": 14423.5,
-    "speakers": {
-        0: {"word_count": 38000, "duration": 10500},
-        1: {"word_count": 7234, "duration": 3923}
+    word_count=32234,
+    duration=12854.38,  # 3.57 hours
+    speakers={
+        0: {"word_count": 15234, "talk_time": 5400.5},
+        1: {"word_count": 8234, "talk_time": 3200.2},
+        # ... 16 speakers total
     }
-}
+)
+
+# Save to JSON
+transcript_data.save("outputs/Israel_vs_Palestine_transcript.json")
 ```
 
 ### Step 3: AI Analysis
@@ -260,12 +311,13 @@ nick-matau-clipper/
 │   └── STATUS.md               # Progress status (updated by AI)
 ├── src/
 │   ├── __init__.py
-│   ├── ingester.py             # [Jake] Video input + audio extraction
-│   ├── transcriber.py          # [Gabriel] Deepgram integration
-│   ├── analyzer.py             # [Gabriel] Gemini clip detection
-│   ├── extractor.py            # [Jake] FFmpeg clip cutting
-│   ├── sheets.py               # [Jake] Google Sheets integration
-│   └── timestamp_utils.py      # [Gabriel] Timestamp refinement
+│   ├── downloader.py           # ✅ YouTube download with yt-dlp
+│   ├── ingester.py             # ✅ Video input + audio extraction (FFmpeg)
+│   ├── transcriber.py          # ✅ Deepgram Nova-3 integration
+│   ├── analyzer.py             # 🔴 Gemini clip detection
+│   ├── extractor.py            # 🔴 FFmpeg clip cutting
+│   ├── sheets.py               # 🔴 Google Sheets integration
+│   └── timestamp_utils.py      # 🔴 Timestamp refinement
 ├── prompts/
 │   ├── base_prompt.md          # Master clip detection prompt
 │   └── nick_preferences.md     # Nick's evolving style guide

@@ -1,4 +1,4 @@
-﻿"""Tests for transcriber module."""
+"""Tests for transcriber module."""
 
 import pytest
 from src.transcriber import Word, find_word_at_timestamp, find_sentence_boundary
@@ -24,7 +24,7 @@ class TestFindWordAtTimestamp:
             Word("test", 2.1, 2.5, 0.97),
         ]
         result = find_word_at_timestamp(words, 1.55)
-        assert result.text == "Hello"  # 1.55 is closer to 1.0 than 1.6
+        assert result.text == "world"  # 1.55 is closer to 1.6 than 1.0
     
     def test_empty_list_returns_none(self):
         result = find_word_at_timestamp([], 1.0)

@@ -1,137 +1,201 @@
-﻿# Project Status
+# Project Status
 
-> **Last Updated**: Jan 22, 2026 by Claude
-> **Sprint**: Sprint 1 - MVP (Jan 13 - Jan 27)
+> **Last Updated**: Jan 25, 2026
+> **Current Phase**: V3 Pipeline Design Complete, Ready for Implementation
+> **Next Step**: Add Claude API key, start implementing Phase 1
 
 ---
 
-## Current Focus
+## Current State Summary
 
-**Pipeline Status**: ✅ Download → Ingest → Transcribe WORKING
+### What's Working (V2)
+- Download videos from YouTube
+- Transcribe with Deepgram (word-level timestamps, speaker IDs)
+- Extract frames every 30 seconds
+- Find clips using quote-based method
+- Extract clips with FFmpeg
 
-Successfully tested with 3.5-hour YouTube video (Israel vs Palestine Debate Episode 256)
+### What's Broken (V2)
+- Conversation segmentation (same person = multiple "guests")
+- No distinction between panel members and actual guests
+- Visual mapper describes each frame independently (no tracking)
+- Clips not tagged with guest identity
+
+### V3 Solution
+Complete pipeline redesign with full LLM engineering for maximum accuracy.
+
+---
+
+## V3 Pipeline Status
+
+| Phase | Module | Status | Priority |
+|-------|--------|--------|----------|
+| **Infrastructure** | | | |
+| | `anthropic_client.py` | 🔴 Not Started | Critical |
+| | `llm_engineering.py` | 🔴 Not Started | Critical |
+| | `error_recovery.py` | 🔴 Not Started | High |
+| | `verification.py` | 🔴 Not Started | High |
+| **Identity Detection** | | | |
+| | `visual_change_detector.py` | 🔴 Not Started | Critical |
+| | `voice_fingerprinter.py` | 🔴 Not Started | High |
+| | `transcript_cue_detector.py` | 🔴 Not Started | High |
+| **Classification** | | | |
+| | `guest_classifier.py` | 🔴 Not Started | Critical |
+| **Mapping** | | | |
+| | `conversation_mapper.py` | 🔴 Not Started | High |
+| **Clip Detection** | | | |
+| | `contextual_clip_finder.py` | 🔴 Not Started | Critical |
+| **Prompts** | | | |
+| | 12 prompt files | 🔴 Not Started | High |
+| **Integration** | | | |
+| | `main.py` updates | 🔴 Not Started | High |
+
+**Overall Progress**: 0% (Design complete, implementation not started)
+
+---
+
+## API Keys Status
+
+| Service | Variable | Status | Notes |
+|---------|----------|--------|-------|
+| Deepgram | `DEEPGRAM_API_KEY` | ✅ Configured | Working |
+| Gemini | `GEMINI_API_KEY` | ✅ Configured | Working |
+| Pyannote | `PYANNOTE_API_KEY` | ✅ Configured | Working |
+| Claude | `ANTHROPIC_API_KEY` | 🔴 **NEEDED** | Required for V3 |
+
+---
+
+## Existing Data (Episode 258)
+
+| File | Status | Notes |
+|------|--------|-------|
+| `Israel vs Palestine Debate Episode 258.mp4` | ✅ Have | 783 MB, 4:52:00 |
+| `episode_258_transcript.json` | ✅ Have | 4.8 MB, 50K words |
+| `episode_258_frames/` | ✅ Have | 584 frames |
+| `episode_258_visual_map.json` | ⚠️ Unreliable | Same person = different descriptions |
+| `episode_258_conversations.json` | ⚠️ Unreliable | 28 "guests" (should be ~8-10) |
+| `quote_clips.json` | ✅ Good | 47 clips, verified timestamps |
+| `clips_v2/*.mp4` | ✅ Good | 10 extracted clips |
+
+**V3 will reprocess using existing transcript and frames with new detection methods.**
 
 ---
 
 ## Session History
 
-### Session 3 - Jan 22, 2026
-**Major milestone: Full YouTube → Transcription pipeline working!**
+### Session 5 - Jan 25, 2026 (Current)
+**Major milestone: V3 Pipeline Design Complete**
 
-#### Completed:
-- ✅ Pushed project to GitHub: https://github.com/gavishap/AI-Content-Clipping-System.git
-- ✅ Installed FFmpeg (C:\ffmpeg\bin)
-- ✅ Created `src/downloader.py` - YouTube video downloading with yt-dlp
-- ✅ Fully implemented `src/ingester.py` - Video metadata extraction + audio extraction
-- ✅ Fully implemented `src/transcriber.py` - Deepgram Nova-3 transcription with:
-  - Word-level timestamps
-  - Speaker diarization (16 speakers detected)
-  - 30-minute timeout for long files
-  - Pydantic model parsing for SDK v5
-- ✅ Updated `main.py` with CLI commands: `download`, `transcribe`, `transcribe-url`
-- ✅ Created tests for downloader, ingester, transcriber modules
+- Analyzed V2 pipeline issues
+- Identified core problem: same person = different Gemini descriptions
+- Designed V3 pipeline with multi-signal detection
+- Added full LLM engineering:
+  - Chain of Thought prompting
+  - Self-consistency (3-run majority vote)
+  - Multi-pass verification
+  - Multi-agent debate (advocate vs skeptic)
+  - Temporal consistency checking
+  - Retrospective review
+  - Adversarial self-critique
+  - Multi-persona evaluation
+  - 8-step verification chain
+  - Ensemble ranking
+  - Error recovery strategies
+- Updated all documentation
 
-#### Test Results (3.5-hour video):
-- **Total Words**: 32,234
-- **Duration**: 3.57 hours
-- **Speakers Detected**: 16
-- **Transcription Time**: ~1 minute
-- **Output**: `outputs/Israel_vs_Palestine_transcript.json` (4.8MB)
+**Outputs**:
+- `docs/TASKS.md` - New V3 task list
+- `docs/ARCHITECTURE.md` - V3 architecture design
+- `docs/STATUS.md` - This file
+- Plan file with full implementation details
 
-#### Files Created:
-- `outputs/Israel vs Palestine Debate Episode 256.f234.mp4` (200MB - audio)
-- `outputs/Israel vs Palestine Debate Episode 256.f617.mp4` (520MB - video)
-- `outputs/Israel vs Palestine Debate Episode 256.wav` (392MB)
-- `outputs/Israel_Palestine_audio.mp3` (82MB - compressed)
-- `outputs/Israel_vs_Palestine_transcript.json` (4.8MB - full transcript)
+### Session 4 - Jan 22, 2026 (Evening)
+- Implemented V2 pipeline (conversation segmentation + clip analyzer)
+- Created visual_mapper, speaker_mapper, conversation_segmenter, clip_analyzer
+- Created prompts for frame analysis and clip detection
 
-**Next Steps**:
-1. Implement `src/analyzer.py` (Gemini AI clip detection)
-2. Create `prompts/base_prompt.md` (clip detection prompt)
-3. Implement `src/timestamp_utils.py` (timestamp refinement)
-4. Implement `src/extractor.py` (clip extraction with FFmpeg)
-
----
+### Session 3 - Jan 22, 2026 (Morning)
+- Full YouTube → Transcription pipeline working
+- Tested on 3.5-hour video: 32,234 words, 16 speakers
 
 ### Session 2 - Jan 14-21, 2026
-- Initial module stubs created
-- Documentation completed
+- Initial module stubs and documentation
 
 ### Session 1 - Jan 14, 2026
-- Created project folder structure
-- Created CLAUDE.md with project overview
-- Created PRD.md with full requirements
-- Created TASKS.md with implementation checklist
-- Created ARCHITECTURE.md with data flow diagrams
-- Created TRANSCRIBER_TASK.md with detailed implementation guide
-- Created cursor rules for Python development
-- Set up .cursor/rules/ and .claude/commands/ directories
-
----
-
-## Module Status
-
-| Module | Status | Last Change | Notes |
-|--------|--------|-------------|-------|
-| downloader.py | ✅ Complete | Jan 22 | YouTube download with yt-dlp |
-| ingester.py | ✅ Complete | Jan 22 | FFmpeg audio extraction |
-| transcriber.py | ✅ Complete | Jan 22 | Deepgram Nova-3, 30min timeout |
-| main.py | 🟡 Partial | Jan 22 | download, transcribe commands done |
-| analyzer.py | 🔴 Not Started | - | Gemini integration needed |
-| extractor.py | 🔴 Not Started | - | FFmpeg clip cutting |
-| sheets.py | 🔴 Not Started | - | Google Sheets integration |
-| timestamp_utils.py | 🔴 Not Started | - | Timestamp refinement |
-
----
-
-## API Keys Required
-
-| Service | Status | Notes |
-|---------|--------|-------|
-| Deepgram | ✅ Working | In `.env` file |
-| Gemini | 🔴 Needed | For analyzer.py |
-| Google Sheets | 🔴 Needed | For sheets.py |
-
----
-
-## Dependencies Installed
-
-```
-deepgram-sdk>=3.0.0  ✅
-yt-dlp>=2024.0.0     ✅
-python-dotenv>=1.0.0 ✅
-click>=8.0.0         ✅
-FFmpeg 8.0.1         ✅ (C:\ffmpeg\bin)
-```
+- Project setup, CLAUDE.md, PRD, TASKS, ARCHITECTURE
 
 ---
 
 ## Blockers
 
-- [x] ~~Need FFmpeg installed~~ (Resolved Jan 22)
-- [x] ~~Need Deepgram API key~~ (Configured in .env)
-- [ ] Need Gemini API key for analyzer
-- [ ] Need Google OAuth credentials for Sheets
+| Blocker | Impact | Resolution |
+|---------|--------|------------|
+| Missing `ANTHROPIC_API_KEY` | Cannot run Claude-based modules | User needs to add key to `.env` |
 
 ---
 
-## Notes for Next Session
+## Next Steps (In Order)
 
-When starting a new session, say:
-```
-Read CLAUDE.md, docs/TASKS.md, and docs/STATUS.md to understand the project.
-The YouTube → Transcription pipeline is complete. Continue with analyzer.py.
-```
+### Immediate
+1. **Add Claude API key** to `.env` file
+2. **Implement `src/anthropic_client.py`** - Claude wrapper with retry logic
+3. **Implement `src/llm_engineering.py`** - Core engineering utilities
 
-### Environment Setup
-```powershell
-# Add FFmpeg to PATH
+### Phase 1 Complete
+4. **Implement `src/visual_change_detector.py`** - Frame comparison
+5. **Test on Episode 258 frames** - Verify visual changes detected correctly
+
+### Phase 2 Complete
+6. **Implement `src/guest_classifier.py`** - Multi-agent classification
+7. **Test classification** - Should get ~8-10 guests, not 28
+
+### Full Pipeline
+8. Implement remaining modules
+9. Test full pipeline on Episode 258
+10. Compare results to V2 clips
+
+---
+
+## Quick Start for Next Session
+
+```
+# Read these files:
+- CLAUDE.md (project overview)
+- docs/TASKS.md (implementation tasks)
+- docs/ARCHITECTURE.md (system design)
+- Plan file at ~/.cursor/plans/guest_detection_pipeline_v3_*.plan.md
+
+# Current status:
+- V3 design complete with full LLM engineering
+- Need ANTHROPIC_API_KEY to proceed
+- Start with src/anthropic_client.py
+
+# Environment setup:
 $env:PATH = "C:\ffmpeg\bin;$env:PATH"
 $env:PYTHONIOENCODING = "utf-8"
 cd C:\Projects\nick-matau-clipper
+
+# First file to implement:
+src/anthropic_client.py
 ```
 
-### Test the Pipeline
-```powershell
-python main.py transcribe-url "https://www.youtube.com/watch?v=VIDEO_ID" --output ./outputs
-```
+---
+
+## Cost Tracking
+
+| Video | V2 Cost | V3 Est. Cost |
+|-------|---------|--------------|
+| Episode 258 | ~$3 | ~$16 |
+
+V3 is ~5x more expensive but should give significantly better accuracy.
+
+---
+
+## Success Criteria for V3
+
+1. **Guest Count**: ~8-10 actual guests identified (not 28)
+2. **Panel Detection**: Dani and other regulars classified as panel
+3. **Timeline Accuracy**: Guest arrival/departure times within ±30 seconds
+4. **Clip Quality**: Clips tell complete stories with verified quotes
+5. **Variety**: Max 3 clips per guest for diversity
+6. **Confidence**: All outputs include confidence scores

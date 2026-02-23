@@ -1,19 +1,29 @@
 # Project Status
 
-> **Last Updated**: Jan 25, 2026
-> **Current Phase**: V3 Pipeline Design Complete, Ready for Implementation
-> **Next Step**: Add Claude API key, start implementing Phase 1
+> **Last Updated**: Feb 8, 2026
+> **Current Phase**: V3 Pipeline - Phase 2.5 (Enhanced Transcript w/ Speaker Identity)
+> **Next Step**: Update clip finding to use enhanced transcript; then Phase 3 (guest_classifier.py)
 
 ---
 
 ## Current State Summary
 
-### What's Working (V2)
+### What's Working (V2 - Legacy)
 - Download videos from YouTube
 - Transcribe with Deepgram (word-level timestamps, speaker IDs)
 - Extract frames every 30 seconds
-- Find clips using quote-based method
+- Find clips using quote-based method (`quote_clip_finder.py`)
 - Extract clips with FFmpeg
+
+### What's Working (V3 - NEW)
+- **anthropic_client.py** - Claude API wrapper with retry, JSON extraction, cost tracking
+- **llm_engineering.py** - Self-consistency, multi-agent debate, ensemble ranking
+- **visual_change_detector.py** - Frame comparison with CoT, consistency, verification
+- **voice_fingerprinter.py** - **REAL Pyannote API** for diarization, identification, voiceprints, audio trimming, transcript merging, and utterance collapsing
+- **transcript_cue_detector.py** - Pattern matching + LLM context validation
+- **CLI Commands** - `create-voiceprint`, `analyze-voices`, `enhance-transcript`
+- **Nick Voiceprint** - Created and saved to `nick_voiceprint.json`
+- **Enhanced Transcript** - Episode 258 last 2h processed with Pyannote identification, merged with Deepgram, collapsed into speaker utterances
 
 ### What's Broken (V2)
 - Conversation segmentation (same person = multiple "guests")
@@ -31,14 +41,18 @@ Complete pipeline redesign with full LLM engineering for maximum accuracy.
 | Phase | Module | Status | Priority |
 |-------|--------|--------|----------|
 | **Infrastructure** | | | |
-| | `anthropic_client.py` | 🔴 Not Started | Critical |
-| | `llm_engineering.py` | 🔴 Not Started | Critical |
+| | `anthropic_client.py` | ✅ Complete | Critical |
+| | `llm_engineering.py` | ✅ Complete | Critical |
 | | `error_recovery.py` | 🔴 Not Started | High |
 | | `verification.py` | 🔴 Not Started | High |
 | **Identity Detection** | | | |
-| | `visual_change_detector.py` | 🔴 Not Started | Critical |
-| | `voice_fingerprinter.py` | 🔴 Not Started | High |
-| | `transcript_cue_detector.py` | 🔴 Not Started | High |
+| | `visual_change_detector.py` | ✅ Complete | Critical |
+| | `voice_fingerprinter.py` | ✅ Complete (Pyannote API + merge + utterances) | Critical |
+| | `transcript_cue_detector.py` | ✅ Complete | High |
+| **Enhanced Transcript** | | | |
+| | `enhance-transcript` CLI | ✅ Complete (Pyannote identify + Deepgram merge + utterance collapse) | Critical |
+| | Nick voiceprint | ✅ Created (`nick_voiceprint.json`) | Critical |
+| | Episode 258 enhanced | ✅ Processed (last 2h, 16 speakers, Nick identified) | - |
 | **Classification** | | | |
 | | `guest_classifier.py` | 🔴 Not Started | Critical |
 | **Mapping** | | | |
@@ -48,9 +62,77 @@ Complete pipeline redesign with full LLM engineering for maximum accuracy.
 | **Prompts** | | | |
 | | 12 prompt files | 🔴 Not Started | High |
 | **Integration** | | | |
-| | `main.py` updates | 🔴 Not Started | High |
+| | `main.py` V3 CLI commands | ✅ Partial (voiceprint + enhance commands) | High |
 
-**Overall Progress**: 0% (Design complete, implementation not started)
+**Overall Progress**: ~55% (Phase 1 + Phase 2 Identity Detection complete + Enhanced Transcript pipeline)
+
+---
+
+## CLI Commands Available
+
+### Download & Transcribe
+```bash
+# Download a YouTube video
+python main.py download "<youtube_url>" --output ./outputs
+
+# Transcribe a local video
+python main.py transcribe video.mp4 --output transcript.json
+
+# Download + transcribe in one step
+python main.py transcribe-url "<youtube_url>" --output ./outputs
+```
+
+### Voiceprint Training
+```bash
+# Create Nick's voiceprint (one-time setup, max 30s of audio used)
+python main.py create-voiceprint nick_sample.wav -o nick_voiceprint.json
+```
+
+### Voice Analysis
+```bash
+# Basic diarization (detect all speakers)
+python main.py analyze-voices stream.wav -o voice_analysis.json
+
+# With Nick identification
+python main.py analyze-voices stream.wav -v nick_voiceprint.json -o voice_analysis.json
+
+# Full cross-modal validation (best accuracy)
+python main.py analyze-voices stream.wav \
+    -v nick_voiceprint.json \
+    -e visual_events.json \
+    -c transcript_cues.json \
+    -o voice_analysis.json
+```
+
+### Enhanced Transcript (NEW - Feb 2026)
+```bash
+# Full stream enhancement
+python main.py enhance-transcript stream.wav \
+    -t transcript.json \
+    -v nick_voiceprint.json \
+    -o outputs/enhanced.json
+
+# Last 2 hours only (saves Pyannote cost)
+python main.py enhance-transcript stream.wav \
+    -t transcript.json \
+    -v nick_voiceprint.json \
+    -s 10314 \
+    -o outputs/enhanced.json
+```
+
+This produces 3 output files:
+- `enhanced.json` - Structured utterances (for LLM analysis)
+- `enhanced.txt` - Human-readable transcript with speaker labels
+- `enhanced_raw_words.json` - Word-level data with speaker_name on each word
+
+### V2 Pipeline Commands (Legacy)
+```bash
+python main.py map-speakers audio.wav -v nick_voiceprint.json -o voice_map.json
+python main.py map-visual video.mp4 --interval 30 --output visual_map.json
+python main.py segment --voice voice_map.json --visual visual_map.json --output conversations.json
+python main.py find-clips --conversations conversations.json --transcript transcript.json --voice voice_map.json --output clips.json
+python main.py pipeline video.mp4 --nick-sample nick.wav --output ./outputs
+```
 
 ---
 
@@ -58,10 +140,10 @@ Complete pipeline redesign with full LLM engineering for maximum accuracy.
 
 | Service | Variable | Status | Notes |
 |---------|----------|--------|-------|
-| Deepgram | `DEEPGRAM_API_KEY` | ✅ Configured | Working |
-| Gemini | `GEMINI_API_KEY` | ✅ Configured | Working |
-| Pyannote | `PYANNOTE_API_KEY` | ✅ Configured | Working |
-| Claude | `ANTHROPIC_API_KEY` | 🔴 **NEEDED** | Required for V3 |
+| Deepgram | `DEEPGRAM_API_KEY` | ✅ Configured | Transcription |
+| Gemini | `GEMINI_API_KEY` | ✅ Configured | Visual analysis |
+| Pyannote | `PYANNOTE_API_KEY` | ✅ Configured | Voice identification |
+| Claude | `ANTHROPIC_API_KEY` | ✅ Configured | Text analysis |
 
 ---
 
@@ -70,53 +152,77 @@ Complete pipeline redesign with full LLM engineering for maximum accuracy.
 | File | Status | Notes |
 |------|--------|-------|
 | `Israel vs Palestine Debate Episode 258.mp4` | ✅ Have | 783 MB, 4:52:00 |
-| `episode_258_transcript.json` | ✅ Have | 4.8 MB, 50K words |
+| `Israel vs Palestine Debate Episode 258.wav` | ✅ Have | 534.5 MB |
+| `episode_258_transcript.json` | ✅ Have | 4.8 MB, 50,507 words, 18 Deepgram speakers |
+| `episode_258_transcript_v3.json` | ✅ NEW | Structured utterances (2,347 turns, named speakers) |
+| `episode_258_transcript_v3.txt` | ✅ NEW | Readable text transcript with speaker labels |
+| `episode_258_transcript_v3_raw_words.json` | ✅ NEW | Word-level with `speaker_name` field |
+| `nick_voiceprint.json` | ✅ NEW | Nick's Pyannote voiceprint (base64) |
 | `episode_258_frames/` | ✅ Have | 584 frames |
 | `episode_258_visual_map.json` | ⚠️ Unreliable | Same person = different descriptions |
 | `episode_258_conversations.json` | ⚠️ Unreliable | 28 "guests" (should be ~8-10) |
 | `quote_clips.json` | ✅ Good | 47 clips, verified timestamps |
 | `clips_v2/*.mp4` | ✅ Good | 10 extracted clips |
 
-**V3 will reprocess using existing transcript and frames with new detection methods.**
+### Enhanced Transcript Results (Last 2h of Episode 258)
+- **Nick identified** as SPEAKER_03 → tagged as `nick` (13,240 words, 545 turns)
+- **16 unique Pyannote speakers** detected
+- **21,388 words** matched to Pyannote labels
+- **29,119 words** in first ~2h52m remain as `deepgram_X` fallback
+- **2,347 utterances** collapsed from 50,507 individual words
+- Processing time: ~3 minutes total
 
 ---
 
 ## Session History
 
-### Session 5 - Jan 25, 2026 (Current)
-**Major milestone: V3 Pipeline Design Complete**
+### Session 8 - Feb 8, 2026 (Current)
+**Major milestone: Enhanced Transcript Pipeline Complete**
 
-- Analyzed V2 pipeline issues
-- Identified core problem: same person = different Gemini descriptions
+1. **Fixed Pyannote API calls** in `voice_fingerprinter.py`:
+   - `diarize_audio()` - Now uses media upload + JSON body (was broken multipart form)
+   - `identify_speakers()` - Same fix + accepts base64 voiceprints inline, `exclusive` + `matching.threshold` params
+   - `_wait_for_job()` - Fixed ServerDisconnectedError on long jobs by using fresh HTTP sessions per poll
+
+2. **Added audio trimming utility** (`trim_audio()`)
+   - FFmpeg-based, supports start offset + duration
+   - Used to process only last 2h of Episode 258 (~$6 savings)
+
+3. **Added transcript merge** (`merge_pyannote_speakers_with_transcript()`)
+   - Merges Pyannote identification segments with Deepgram word-level transcript
+   - Assigns speaker names by maximum timestamp overlap
+   - Supports time offset for trimmed audio alignment
+
+4. **Added utterance collapsing** (`collapse_words_to_utterances()`)
+   - Collapses 50,507 words into 2,347 speaker turns
+   - Groups consecutive words from same speaker (splits on speaker change or 2s+ pause)
+   - `build_readable_transcript()` - Produces `[HH:MM:SS] Speaker: text` format
+   - `build_structured_transcript()` - Produces LLM-optimized JSON with utterance start/end timestamps
+
+5. **Added `enhance-transcript` CLI command** in `main.py`
+   - End-to-end: trim → upload → identify → merge → collapse → save
+   - Produces 3 outputs: structured JSON, readable text, raw word-level backup
+
+6. **Ran on Episode 258** - Successfully identified Nick (13,240 words) and 15 other speakers
+
+### Session 7 - Jan 25, 2026
+**Major milestone: V3 Phase 2 Identity Detection Complete + CLI**
+- Rebuilt `voice_fingerprinter.py` with real Pyannote API
+- Added `create-voiceprint` and `analyze-voices` CLI commands
+- Created Nick's voiceprint from audio sample
+
+### Session 6 - Jan 25, 2026
+**Major milestone: V3 Phase 1 Infrastructure Complete**
+- Implemented `anthropic_client.py`, `llm_engineering.py`, `visual_change_detector.py`, `transcript_cue_detector.py`
+
+### Session 5 - Jan 25, 2026
 - Designed V3 pipeline with multi-signal detection
-- Added full LLM engineering:
-  - Chain of Thought prompting
-  - Self-consistency (3-run majority vote)
-  - Multi-pass verification
-  - Multi-agent debate (advocate vs skeptic)
-  - Temporal consistency checking
-  - Retrospective review
-  - Adversarial self-critique
-  - Multi-persona evaluation
-  - 8-step verification chain
-  - Ensemble ranking
-  - Error recovery strategies
-- Updated all documentation
-
-**Outputs**:
-- `docs/TASKS.md` - New V3 task list
-- `docs/ARCHITECTURE.md` - V3 architecture design
-- `docs/STATUS.md` - This file
-- Plan file with full implementation details
 
 ### Session 4 - Jan 22, 2026 (Evening)
 - Implemented V2 pipeline (conversation segmentation + clip analyzer)
-- Created visual_mapper, speaker_mapper, conversation_segmenter, clip_analyzer
-- Created prompts for frame analysis and clip detection
 
 ### Session 3 - Jan 22, 2026 (Morning)
 - Full YouTube → Transcription pipeline working
-- Tested on 3.5-hour video: 32,234 words, 16 speakers
 
 ### Session 2 - Jan 14-21, 2026
 - Initial module stubs and documentation
@@ -130,29 +236,30 @@ Complete pipeline redesign with full LLM engineering for maximum accuracy.
 
 | Blocker | Impact | Resolution |
 |---------|--------|------------|
-| Missing `ANTHROPIC_API_KEY` | Cannot run Claude-based modules | User needs to add key to `.env` |
+| None | - | All blockers resolved |
 
 ---
 
 ## Next Steps (In Order)
 
-### Immediate
-1. **Add Claude API key** to `.env` file
-2. **Implement `src/anthropic_client.py`** - Claude wrapper with retry logic
-3. **Implement `src/llm_engineering.py`** - Core engineering utilities
+### Immediate: Update Clip Finding
+1. **Update clip finder** to use the new enhanced utterance transcript (`episode_258_transcript_v3.json`) with named speakers instead of raw Deepgram transcript
+2. **Test clip quality** - clips should now reference speakers by name
 
-### Phase 1 Complete
-4. **Implement `src/visual_change_detector.py`** - Frame comparison
-5. **Test on Episode 258 frames** - Verify visual changes detected correctly
+### Phase 3: Classification
+3. **Implement `src/guest_classifier.py`** - Multi-agent debate classification
+4. **Test on Episode 258** - Should get ~8-10 guests, not 28
 
-### Phase 2 Complete
-6. **Implement `src/guest_classifier.py`** - Multi-agent classification
-7. **Test classification** - Should get ~8-10 guests, not 28
+### Phase 4: Mapping
+5. **Implement `src/conversation_mapper.py`** - Hierarchical summarization
 
-### Full Pipeline
-8. Implement remaining modules
-9. Test full pipeline on Episode 258
-10. Compare results to V2 clips
+### Phase 5: Clip Detection
+6. **Implement `src/contextual_clip_finder.py`** - 5-stage clip detection
+
+### Phase 6: Integration
+7. **Implement prompt files** (12 total)
+8. **Update main.py** with remaining V3 CLI commands
+9. **Test full pipeline** on Episode 258, compare to V2 clips
 
 ---
 
@@ -161,22 +268,41 @@ Complete pipeline redesign with full LLM engineering for maximum accuracy.
 ```
 # Read these files:
 - CLAUDE.md (project overview)
+- docs/STATUS.md (this file)
 - docs/TASKS.md (implementation tasks)
-- docs/ARCHITECTURE.md (system design)
-- Plan file at ~/.cursor/plans/guest_detection_pipeline_v3_*.plan.md
+- docs/ARCHITECTURE.md (system design + full module map)
 
-# Current status:
-- V3 design complete with full LLM engineering
-- Need ANTHROPIC_API_KEY to proceed
-- Start with src/anthropic_client.py
+# What's DONE:
+✅ src/downloader.py - YouTube download
+✅ src/ingester.py - Audio extraction
+✅ src/transcriber.py - Deepgram transcription
+✅ src/visual_mapper.py - Frame extraction
+✅ src/speaker_mapper.py - Deepgram speaker mapping (V2)
+✅ src/extractor.py - FFmpeg clip cutting
+✅ src/anthropic_client.py - Claude API wrapper (380 lines)
+✅ src/llm_engineering.py - Self-consistency, debate, ensemble (940 lines)
+✅ src/visual_change_detector.py - CoT + consistency + 3-pass (500 lines)
+✅ src/voice_fingerprinter.py - Pyannote API + merge + utterances (~1500 lines)
+✅ src/transcript_cue_detector.py - Pattern matching + LLM validation (550 lines)
+✅ main.py - CLI: create-voiceprint, analyze-voices, enhance-transcript
+✅ nick_voiceprint.json - Nick's voiceprint
+✅ outputs/episode_258_transcript_v3.json - Enhanced structured transcript
+✅ outputs/episode_258_transcript_v3.txt - Readable transcript
 
-# Environment setup:
+# Tests:
+✅ tests/test_anthropic_client.py
+✅ tests/test_llm_engineering.py
+✅ tests/test_visual_change_detector.py
+✅ tests/test_voice_fingerprinter.py
+✅ tests/test_transcript_cue_detector.py
+
+# Environment setup (Windows):
 $env:PATH = "C:\ffmpeg\bin;$env:PATH"
 $env:PYTHONIOENCODING = "utf-8"
 cd C:\Projects\nick-matau-clipper
 
-# First file to implement:
-src/anthropic_client.py
+# Quick run enhanced transcript on a video:
+python main.py enhance-transcript audio.wav -t transcript.json -v nick_voiceprint.json -s 10314 -o outputs/enhanced.json
 ```
 
 ---
@@ -185,9 +311,8 @@ src/anthropic_client.py
 
 | Video | V2 Cost | V3 Est. Cost |
 |-------|---------|--------------|
-| Episode 258 | ~$3 | ~$16 |
-
-V3 is ~5x more expensive but should give significantly better accuracy.
+| Episode 258 (full) | ~$3 | ~$16 |
+| Episode 258 (last 2h enhance only) | - | ~$6 (Pyannote) |
 
 ---
 
@@ -197,5 +322,6 @@ V3 is ~5x more expensive but should give significantly better accuracy.
 2. **Panel Detection**: Dani and other regulars classified as panel
 3. **Timeline Accuracy**: Guest arrival/departure times within ±30 seconds
 4. **Clip Quality**: Clips tell complete stories with verified quotes
-5. **Variety**: Max 3 clips per guest for diversity
-6. **Confidence**: All outputs include confidence scores
+5. **Speaker Attribution**: Each clip tagged with who is speaking (nick vs guest)
+6. **Variety**: Max 3 clips per guest for diversity
+7. **Confidence**: All outputs include confidence scores

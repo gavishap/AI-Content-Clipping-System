@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -55,6 +55,10 @@ outputs/
 # Logs
 *.log
 logs/
+
+# Personal media/test directories
+interview_vid/
+jack_call/
 
 # Pytest
 .pytest_cache/

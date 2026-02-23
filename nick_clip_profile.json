@@ -1,0 +1,123 @@
+{
+  "nick_clip_profile": {
+    "duration": {
+      "min_seconds": 25,
+      "max_seconds": 180,
+      "sweet_spot_min": 55,
+      "sweet_spot_max": 90,
+      "average": 68,
+      "median": 60
+    },
+    "hook_types_ranked": [
+      "trap_question",
+      "knowledge_check",
+      "interruption_wait_hold_on",
+      "direct_insult_roast"
+    ],
+    "clip_types_ranked": [
+      "GOTCHA",
+      "DEBUNK",
+      "CONFRONTATION",
+      "EDUCATION",
+      "HUMOR"
+    ],
+    "topics_ranked": [
+      "Israel/Palestine History & Geography",
+      "Islamic Theology vs. Practice",
+      "Definitions of Genocide/Apartheid",
+      "Jewish History (Judea/Talmud)",
+      "Western vs. Non-Western Morality"
+    ],
+    "structure_template": {
+      "setup_seconds": { "min": 5, "max": 20, "avg": 12 },
+      "peak_seconds": { "min": 30, "max": 50, "avg": 40 },
+      "resolution_seconds": { "min": 2, "max": 10, "avg": 5 }
+    },
+    "nick_role_distribution": {
+      "questioner_pct": 60,
+      "attacker_pct": 10,
+      "educator_pct": 20,
+      "reactor_pct": 5,
+      "defender_pct": 5
+    },
+    "speaker_dynamics": {
+      "nick_speaks_first_pct": 75,
+      "nick_speaks_last_pct": 90,
+      "avg_turn_count": 6,
+      "nick_talk_time_ratio": 0.65
+    },
+    "emotional_patterns": {
+      "most_common_arc": "Curiosity -> Trap -> Victory/Amusement",
+      "peak_emotions_ranked": [
+        "Smug Satisfaction",
+        "Disbelief at Guest Ignorance"
+      ],
+      "nick_wins_pct": 100
+    },
+    "scoring_weights": {
+      "resolution_quality": { "weight": 25, "dealbreaker_threshold": 7 },
+      "hook_strength":      { "weight": 20, "dealbreaker_threshold": 4 },
+      "standalone_clarity":  { "weight": 15, "dealbreaker_threshold": 6 },
+      "emotional_arc":       { "weight": 15, "dealbreaker_threshold": 3 },
+      "nick_presence":       { "weight": 10, "dealbreaker_threshold": 5 },
+      "controversy_level":   { "weight": 10, "dealbreaker_threshold": 2 },
+      "shareability":        { "weight": 5,  "dealbreaker_threshold": 2 }
+    },
+    "boundary_signals": {
+      "start_cues": [
+        "Nick asking 'Can you tell me...'",
+        "Nick asking 'Do you agree that...'",
+        "Nick asking a specific factual question",
+        "Guest making a verifiable false claim",
+        "Nick saying 'Wait' or 'Hold on'"
+      ],
+      "end_cues": [
+        "Guest disconnecting or leaving",
+        "Nick saying 'He ran away' or similar",
+        "Guest stammering or going silent",
+        "Nick delivering a final rhetorical question",
+        "Nick laughing after exposing contradiction",
+        "Nick delivering a summary/punchline statement"
+      ],
+      "context_before_peak_seconds": { "min": 0, "max": 15, "avg": 8 },
+      "aftermath_after_peak_seconds": { "min": 2, "max": 8, "avg": 4 }
+    },
+    "anti_patterns": [
+      "Nick getting yelled over without a rebuttal",
+      "Amicable agreement on boring topics",
+      "Complex nuanced theological agreements",
+      "Guest making a solid point that Nick cannot refute instantly",
+      "Long dead air or technical difficulties",
+      "Inside jokes requiring stream context",
+      "Mid-sentence starts or abrupt endings"
+    ],
+    "mandatory_requirements": [
+      "Nick must win the interaction (logically or optically)",
+      "Guest must display ignorance, hypocrisy, or anger",
+      "The contradiction or key moment must be clearly audible in transcript",
+      "Clip must be understandable without prior stream context"
+    ],
+    "clip_patterns": {
+      "logic_trap": {
+        "description": "Nick asks a seemingly simple question, guest commits to wrong answer, Nick reveals the truth",
+        "structure": ["nick_asks_specific_question", "guest_commits_answer", "nick_reveals_contradiction", "guest_reacts"],
+        "frequency": "most_common"
+      },
+      "knowledge_check": {
+        "description": "Nick exposes guest's lack of basic knowledge about the topic they are defending",
+        "structure": ["guest_makes_claim", "nick_asks_basic_fact", "guest_fails_to_answer", "nick_explains"],
+        "frequency": "very_common"
+      },
+      "emotional_asymmetry": {
+        "description": "Nick stays calm/smug while guest becomes emotional/irrational",
+        "structure": ["heated_exchange", "guest_escalates", "nick_stays_calm", "contrast_moment"],
+        "frequency": "common"
+      },
+      "rage_quit": {
+        "description": "Guest disconnects or leaves after being cornered - automatic clip",
+        "structure": ["nick_corners_guest", "guest_struggles", "guest_leaves", "nick_reacts"],
+        "frequency": "high_value_when_occurs"
+      }
+    }
+  }
+}

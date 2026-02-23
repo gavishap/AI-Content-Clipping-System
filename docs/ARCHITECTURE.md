@@ -1,6 +1,8 @@
 # System Architecture - Pipeline V3
 
-## High-Level Architecture
+> **Last Updated**: Feb 8, 2026
+
+## High-Level Pipeline
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
@@ -8,303 +10,279 @@
 │              Full LLM Engineering for Maximum Accuracy                            │
 ├──────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │                    PHASE 1: DATA COLLECTION (Existing)                       │ │
-│  │                                                                              │ │
-│  │  YouTube URL → Download → Extract Audio → Transcribe → Extract Frames       │ │
-│  │      │           │            │              │              │               │ │
-│  │      ▼           ▼            ▼              ▼              ▼               │ │
-│  │  [yt-dlp]    [video.mp4]  [audio.wav]  [transcript]    [frames/]           │ │
-│  │                                         (Deepgram)     (FFmpeg)             │ │
-│  └─────────────────────────────────────────────────────────────────────────────┘ │
+│  PHASE 1: DATA COLLECTION ✅ Working                                             │
+│  ────────────────────────────────────────────────────                             │
+│  YouTube URL → Download → Extract Audio → Transcribe → Extract Frames            │
+│      │           │            │              │              │                     │
+│      ▼           ▼            ▼              ▼              ▼                     │
+│  [yt-dlp]    [video.mp4]  [audio.wav]  [transcript]    [frames/]                │
+│                                         (Deepgram)     (FFmpeg)                  │
 │                                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │                    PHASE 2: IDENTITY DETECTION (New)                         │ │
-│  │                                                                              │ │
-│  │  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐    │ │
-│  │  │ Visual Change      │  │ Voice Fingerprint  │  │ Transcript Cue     │    │ │
-│  │  │ Detector           │  │ er                 │  │ Detector           │    │ │
-│  │  │                    │  │                    │  │                    │    │ │
-│  │  │ • CoT prompting    │  │ • Multi-speaker    │  │ • Pattern match    │    │ │
-│  │  │ • 3x consistency   │  │ • Cross-modal      │  │ • LLM validation   │    │ │
-│  │  │ • 3-pass verify    │  │   validation       │  │ • Semantic search  │    │ │
-│  │  │                    │  │ • Cluster verify   │  │                    │    │ │
-│  │  └─────────┬──────────┘  └─────────┬──────────┘  └─────────┬──────────┘    │ │
-│  │            │                       │                       │               │ │
-│  │            ▼                       ▼                       ▼               │ │
-│  │     visual_events.json    voice_fingerprints.json   transcript_cues.json  │ │
-│  └─────────────────────────────────────────────────────────────────────────────┘ │
+│  PHASE 2: IDENTITY DETECTION ✅ Working                                          │
+│  ────────────────────────────────────────────────────                             │
 │                                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │                    PHASE 3: CLASSIFICATION (New)                             │ │
-│  │                                                                              │ │
-│  │  ┌──────────────────────────────────────────────────────────────────────┐  │ │
-│  │  │                       Guest Classifier                                │  │ │
-│  │  │                                                                       │  │ │
-│  │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐              │  │ │
-│  │  │  │  Advocate   │ vs │   Skeptic   │ → │    Judge    │              │  │ │
-│  │  │  │ "IS guest"  │    │"NOT guest"  │    │  (decides)  │              │  │ │
-│  │  │  └─────────────┘    └─────────────┘    └─────────────┘              │  │ │
-│  │  │                           │                                          │  │ │
-│  │  │                           ▼                                          │  │ │
-│  │  │              ┌─────────────────────────┐                            │  │ │
-│  │  │              │ Temporal Consistency    │                            │  │ │
-│  │  │              │ Check                   │                            │  │ │
-│  │  │              └────────────┬────────────┘                            │  │ │
-│  │  │                           ▼                                          │  │ │
-│  │  │              ┌─────────────────────────┐                            │  │ │
-│  │  │              │ Retrospective Review    │                            │  │ │
-│  │  │              │ (all classifications)   │                            │  │ │
-│  │  │              └────────────┬────────────┘                            │  │ │
-│  │  └───────────────────────────┼───────────────────────────────────────────┘  │ │
-│  │                              ▼                                              │ │
-│  │                     people_registry.json                                    │ │
-│  │                     {nick, panel[], guests[]}                               │ │
-│  └─────────────────────────────────────────────────────────────────────────────┘ │
+│  ┌────────────────────┐  ┌────────────────────┐  ┌────────────────────┐         │
+│  │ Visual Change      │  │ Voice Fingerprint  │  │ Transcript Cue     │         │
+│  │ Detector           │  │ er (Pyannote)      │  │ Detector           │         │
+│  │                    │  │                    │  │                    │         │
+│  │ • CoT prompting    │  │ • Voiceprint train │  │ • 20+ regex intro  │         │
+│  │ • 3x consistency   │  │ • Speaker identify │  │ • 15+ regex exit   │         │
+│  │ • 3-pass verify    │  │ • Audio trim       │  │ • LLM validation   │         │
+│  │                    │  │ • Deepgram merge   │  │                    │         │
+│  │ Gemini 2.5         │  │ • Utterance collapse│  │ Claude             │         │
+│  └─────────┬──────────┘  └─────────┬──────────┘  └─────────┬──────────┘         │
+│            │                       │                       │                     │
+│            ▼                       ▼                       ▼                     │
+│     visual_events.json    episode_258_         transcript_cues.json              │
+│                           transcript_v3.json                                     │
+│                           transcript_v3.txt                                      │
 │                                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │                    PHASE 4: CONVERSATION MAPPING (New)                       │ │
-│  │                                                                              │ │
-│  │  For each guest:                                                            │ │
-│  │  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐    │ │
-│  │  │ Extract     │ → │ Chunk into  │ → │ Summarize   │ → │ Meta-       │    │ │
-│  │  │ transcript  │   │ 3-min parts │   │ each chunk  │   │ summarize   │    │ │
-│  │  └─────────────┘   └─────────────┘   └─────────────┘   └─────────────┘    │ │
-│  │                                                              │              │ │
-│  │                                                              ▼              │ │
-│  │                                              ┌─────────────────────────┐    │ │
-│  │                                              │ Extract & Verify Topics │    │ │
-│  │                                              └────────────┬────────────┘    │ │
-│  │                                                           ▼                 │ │
-│  │                                                  conversation_map.json      │ │
-│  │                                                  {summaries, topics,        │ │
-│  │                                                   scrollable timeline}      │ │
-│  └─────────────────────────────────────────────────────────────────────────────┘ │
+│  PHASE 2.5: ENHANCED TRANSCRIPT ✅ Working                                       │
+│  ────────────────────────────────────────────────────                             │
 │                                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │                    PHASE 5: CLIP DETECTION (New)                             │ │
-│  │                                                                              │ │
-│  │  ┌─────────────────────────────────────────────────────────────────────┐   │ │
-│  │  │ Stage 1: 5-Criteria Detection                                        │   │ │
-│  │  │ Hook (1-10) + Conflict (1-10) + Resolution (1-10) +                  │   │ │
-│  │  │ Shareability (1-10) + Standalone (1-10) = Score/50                   │   │ │
-│  │  └──────────────────────────────┬──────────────────────────────────────┘   │ │
-│  │                                 ▼                                           │ │
-│  │  ┌─────────────────────────────────────────────────────────────────────┐   │ │
-│  │  │ Stage 2: Adversarial Self-Critique                                   │   │ │
-│  │  │ 6 attack vectors: Quote, Hook, Context, Resolution, Ethics, Platform │   │ │
-│  │  └──────────────────────────────┬──────────────────────────────────────┘   │ │
-│  │                                 ▼                                           │ │
-│  │  ┌─────────────────────────────────────────────────────────────────────┐   │ │
-│  │  │ Stage 3: Multi-Persona Evaluation                                    │   │ │
-│  │  │ Viral Expert + Content Creator + Casual Viewer + Critic              │   │ │
-│  │  └──────────────────────────────┬──────────────────────────────────────┘   │ │
-│  │                                 ▼                                           │ │
-│  │  ┌─────────────────────────────────────────────────────────────────────┐   │ │
-│  │  │ Stage 4: 8-Step Verification Chain                                   │   │ │
-│  │  │ Quote exists → Context exists → Timeline logical → Duration valid →  │   │ │
-│  │  │ Speaker correct → Within conversation → Clean hook → Final check     │   │ │
-│  │  └──────────────────────────────┬──────────────────────────────────────┘   │ │
-│  │                                 ▼                                           │ │
-│  │  ┌─────────────────────────────────────────────────────────────────────┐   │ │
-│  │  │ Stage 5: Ensemble Ranking (Borda Count)                              │   │ │
-│  │  │ Raw Score + Pairwise Tournament + Persona Consensus → Final Rank     │   │ │
-│  │  └──────────────────────────────┬──────────────────────────────────────┘   │ │
-│  │                                 ▼                                           │ │
-│  │                            clips.json                                       │ │
-│  │                 {contextual_clips (5-8 min), moment_clips (60-90s)}        │ │
-│  └─────────────────────────────────────────────────────────────────────────────┘ │
+│  Deepgram transcript + Pyannote identification → Merged utterance transcript     │
 │                                                                                   │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │                    PHASE 6: EXTRACTION (Existing)                            │ │
-│  │                                                                              │ │
-│  │  clips.json → FFmpeg extraction → clips_v3/*.mp4                            │ │
-│  └─────────────────────────────────────────────────────────────────────────────┘ │
+│  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐     │
+│  │ Trim audio   │ → │ Upload to    │ → │ Pyannote     │ → │ Merge with   │     │
+│  │ (FFmpeg)     │   │ Pyannote     │   │ identify     │   │ Deepgram     │     │
+│  │              │   │ (media/input)│   │ w/ voiceprint│   │ by overlap   │     │
+│  └──────────────┘   └──────────────┘   └──────────────┘   └──────┬───────┘     │
+│                                                                    │             │
+│                                           ┌────────────────────────┘             │
+│                                           ▼                                      │
+│                                    ┌──────────────┐                              │
+│                                    │ Collapse to  │                              │
+│                                    │ utterances   │                              │
+│                                    └──────┬───────┘                              │
+│                                           │                                      │
+│                              ┌────────────┼────────────┐                         │
+│                              ▼            ▼            ▼                         │
+│                        .json         .txt         _raw_words.json               │
+│                     (structured)  (readable)   (word-level backup)               │
+│                                                                                   │
+│  PHASE 3: CLASSIFICATION 🔴 TODO                                                │
+│  ────────────────────────────────────────────────────                             │
+│                                                                                   │
+│  ┌──────────────────────────────────────────────────────────────────────┐        │
+│  │                       Guest Classifier                                │        │
+│  │                                                                       │        │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐              │        │
+│  │  │  Advocate   │ vs │   Skeptic   │ → │    Judge    │              │        │
+│  │  │ "IS guest"  │    │"NOT guest"  │    │  (decides)  │              │        │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘              │        │
+│  │                           │                                          │        │
+│  │                           ▼                                          │        │
+│  │              Temporal Consistency → Retrospective Review             │        │
+│  └──────────────────────────────────────────────────────────────────────┘        │
+│                              ▼                                                    │
+│                     people_registry.json                                          │
+│                                                                                   │
+│  PHASE 4: CONVERSATION MAPPING 🔴 TODO                                           │
+│  ────────────────────────────────────────────────────                             │
+│                                                                                   │
+│  For each guest:                                                                 │
+│  Extract transcript → Chunk 3-min → Summarize → Meta-summarize → Topics         │
+│                              ▼                                                    │
+│                     conversation_map.json                                         │
+│                                                                                   │
+│  PHASE 5: CLIP DETECTION 🔴 TODO                                                 │
+│  ────────────────────────────────────────────────────                             │
+│                                                                                   │
+│  Stage 1: 5-Criteria Detection (Hook + Conflict + Resolution +                   │
+│           Shareability + Standalone = Score/50)                                   │
+│  Stage 2: Adversarial Self-Critique (6 attack vectors)                           │
+│  Stage 3: Multi-Persona Evaluation (4 personas)                                  │
+│  Stage 4: 8-Step Verification Chain                                              │
+│  Stage 5: Ensemble Ranking (Borda Count)                                         │
+│                              ▼                                                    │
+│                         clips.json                                                │
+│                                                                                   │
+│  PHASE 6: EXTRACTION ✅ Working                                                   │
+│  ────────────────────────────────────────────────────                             │
+│                                                                                   │
+│  clips.json → FFmpeg extraction → clips_v3/*.mp4                                 │
 │                                                                                   │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Module Diagram
+## Complete Module Map
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              main.py (CLI)                                       │
-│  Commands: pipeline-v3 | detect-visual-changes | classify-people |              │
-│            map-conversations | find-contextual-clips                             │
-└──────────────────────────────────┬──────────────────────────────────────────────┘
+│                              main.py (CLI Entry Point)                           │
+│                                                                                  │
+│  Working commands:                                                                │
+│    download | transcribe | transcribe-url | create-voiceprint |                  │
+│    map-speakers | analyze-voices | enhance-transcript |                          │
+│    map-visual | segment | find-clips | pipeline                                  │
+│                                                                                  │
+│  Legacy commands: process | analyze | extract                                    │
+└──────────────────────────────────┬───────────────────────────────────────────────┘
                                    │
-         ┌─────────────────────────┼─────────────────────────┐
-         │                         │                         │
-         ▼                         ▼                         ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ EXISTING        │    │ LLM ENGINEERING │    │ NEW MODULES     │
-│ (Keep)          │    │ INFRASTRUCTURE  │    │                 │
-├─────────────────┤    ├─────────────────┤    ├─────────────────┤
-│ downloader.py   │    │anthropic_client │    │visual_change_   │
-│ ingester.py     │    │   .py           │    │  detector.py    │
-│ transcriber.py  │    │                 │    │                 │
-│ visual_mapper.py│    │llm_engineering  │    │voice_finger     │
-│ speaker_mapper  │    │   .py           │    │  printer.py     │
-│   .py           │    │                 │    │                 │
-│ extractor.py    │    │error_recovery   │    │transcript_cue_  │
-│                 │    │   .py           │    │  detector.py    │
-│                 │    │                 │    │                 │
-│                 │    │verification.py  │    │guest_classifier │
-│                 │    │                 │    │   .py           │
-│                 │    │                 │    │                 │
-│                 │    │                 │    │conversation_    │
-│                 │    │                 │    │  mapper.py      │
-│                 │    │                 │    │                 │
-│                 │    │                 │    │contextual_clip_ │
-│                 │    │                 │    │  finder.py      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                      │                      │
-         ▼                      ▼                      ▼
+    ┌──────────────────────────────┼──────────────────────────────┐
+    │                              │                              │
+    ▼                              ▼                              ▼
+┌───────────────────┐  ┌────────────────────┐  ┌────────────────────────────────┐
+│ DATA COLLECTION   │  │ LLM ENGINEERING    │  │ V3 DETECTION & ANALYSIS        │
+│ (Phase 1)         │  │ INFRASTRUCTURE     │  │ (Phase 2+)                     │
+├───────────────────┤  ├────────────────────┤  ├────────────────────────────────┤
+│                   │  │                    │  │                                │
+│ downloader.py     │  │ anthropic_client   │  │ visual_change_detector.py  ✅ │
+│  └ yt-dlp         │  │   .py          ✅ │  │  └ Gemini 2.5                 │
+│                   │  │  └ Claude API      │  │  └ CoT + consistency + verify │
+│ ingester.py       │  │  └ Retry, JSON     │  │                                │
+│  └ FFmpeg audio   │  │  └ Cost tracking   │  │ voice_fingerprinter.py     ✅ │
+│                   │  │                    │  │  └ Pyannote API               │
+│ transcriber.py    │  │ llm_engineering    │  │  └ Voiceprint create          │
+│  └ Deepgram Nova-3│  │   .py          ✅ │  │  └ Diarize + Identify         │
+│  └ Word timestamps│  │  └ SelfConsistency │  │  └ Audio trim (FFmpeg)        │
+│  └ Speaker IDs    │  │  └ MultiAgentDebate│  │  └ Deepgram merge             │
+│                   │  │  └ EnsembleRanker  │  │  └ Utterance collapse         │
+│ visual_mapper.py  │  │  └ TwoPassVerifier │  │  └ Readable transcript        │
+│  └ Frame extract  │  │  └ Confidence cal. │  │                                │
+│  └ Gemini analysis│  │                    │  │ transcript_cue_detector.py ✅ │
+│                   │  │ error_recovery     │  │  └ 20+ intro regex patterns   │
+│ speaker_mapper.py │  │   .py          🔴 │  │  └ 15+ exit regex patterns    │
+│  └ V2 Deepgram    │  │                    │  │  └ LLM context validation     │
+│    speaker map    │  │ verification       │  │                                │
+│                   │  │   .py          🔴 │  │ guest_classifier.py        🔴 │
+│ extractor.py      │  │                    │  │  └ Multi-agent debate         │
+│  └ FFmpeg clip cut│  │                    │  │                                │
+│                   │  │                    │  │ conversation_mapper.py     🔴 │
+│ timestamp_utils.py│  │                    │  │  └ Hierarchical summaries     │
+│  └ Format helpers │  │                    │  │                                │
+│                   │  │                    │  │ contextual_clip_finder.py  🔴 │
+│                   │  │                    │  │  └ 5-stage clip detection     │
+└───────────────────┘  └────────────────────┘  └────────────────────────────────┘
+         │                      │                           │
+         ▼                      ▼                           ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                           APIS                                   │
+│                           EXTERNAL APIs                          │
 ├───────────────┬───────────────┬───────────────┬─────────────────┤
 │   Deepgram    │   Gemini 2.5  │    Claude     │    Pyannote     │
-│   Nova-3      │   (images)    │  Sonnet 4.5   │   (voice)       │
-│               │               │   (text)      │                 │
+│   Nova-3      │   Flash       │  Sonnet 4.5   │   AI            │
+│               │               │               │                 │
+│ Transcription │ Visual frames │ Text analysis  │ Voice ID        │
+│ Word timestamps│ Image analysis│ LLM patterns  │ Diarization     │
+│ Speaker IDs   │              │ Cue validation │ Identification  │
+│               │              │               │ Voiceprints     │
+│ ~$0.004/min   │ ~$0.001/img  │ $3/$15 per MTok│ ~$0.10/min     │
 └───────────────┴───────────────┴───────────────┴─────────────────┘
 ```
 
 ---
 
-## LLM Engineering Patterns
+## V2 Legacy Pipeline (Still Available)
 
-### Pattern 1: Chain of Thought (CoT)
 ```
-Used in: Visual Change Detection
-
-Force step-by-step reasoning:
-Step 1 → Step 2 → Step 3 → ... → Final Answer
-
-Reduces errors by making reasoning explicit.
-```
-
-### Pattern 2: Self-Consistency
-```
-Used in: Visual Change Detection
-
-Run same query N times (N=3) with temperature variation.
-Take majority vote.
-Only accept if agreement ratio >= 66%.
-```
-
-### Pattern 3: Multi-Pass Verification
-```
-Used in: Visual Change Detection, Classification
-
-Run with different prompts/perspectives:
-- Pass 1: Forward (A → B)
-- Pass 2: Backward (B → A)
-- Pass 3: Holistic (both together)
-
-Require 2/3 agreement to confirm.
-```
-
-### Pattern 4: Multi-Agent Debate
-```
-Used in: Guest Classification
-
-Agent 1 (Advocate): Argues FOR the conclusion
-Agent 2 (Skeptic): Argues AGAINST the conclusion
-Agent 3 (Judge): Weighs both arguments, decides
-
-Forces consideration of counterarguments.
-```
-
-### Pattern 5: Adversarial Self-Critique
-```
-Used in: Clip Detection
-
-After initial answer, attack own work:
-- Find flaws in reasoning
-- Identify potential errors
-- Verify claims programmatically
-- Adjust confidence accordingly
-```
-
-### Pattern 6: Multi-Persona Evaluation
-```
-Used in: Clip Detection
-
-Evaluate from multiple perspectives:
-- Viral Expert: Will this spread?
-- Content Creator: Fits the brand?
-- Casual Viewer: Would I watch this?
-- Critic: What's wrong with this?
-
-Consensus = higher confidence.
-```
-
-### Pattern 7: Verification Chains
-```
-Used in: Clip Detection, Classification
-
-Programmatic verification steps:
-Step 1: Check X exists → Pass/Fail
-Step 2: Check Y is valid → Pass/Fail
-...
-All must pass or attempt recovery.
-```
-
-### Pattern 8: Ensemble Ranking
-```
-Used in: Final Clip Ranking
-
-Multiple ranking methods:
-1. Raw score ranking
-2. Pairwise tournament
-3. Persona consensus
-
-Combine with Borda count for final order.
+┌──────────────────────────────────────────────────────────────────────┐
+│                      V2 LEGACY PIPELINE                               │
+│               (Works but has known issues)                            │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  speaker_mapper.py → conversation_segmenter.py → clip_analyzer.py    │
+│  (Deepgram IDs)       (visual + voice merge)      (Gemini clips)     │
+│                       ⚠️ Same person = many        ⚠️ Bad timestamps │
+│                          "conversations"                              │
+│                                                                       │
+│  quote_clip_finder.py (V2 - Best working clip finder)                │
+│  ├ 10-min sliding windows over transcript                             │
+│  ├ Gemini finds "money quotes"                                        │
+│  ├ Search transcript for exact text → precise timestamp               │
+│  ├ Expand 40s before + 50s after                                      │
+│  └ Dedup overlapping clips                                            │
+│  → 47 clips found, 10 extracted to clips_v2/                         │
+│                                                                       │
+│  CLI: map-speakers | map-visual | segment | find-clips | pipeline    │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Data Flow
+## Enhanced Transcript Data Flow (New)
 
 ```
-video.mp4 + nick_sample.wav
+audio.wav + nick_voiceprint.json + episode_258_transcript.json
          │
-         ├─► [1] Transcribe (Deepgram) ──► transcript.json
+         ├─► [1] Trim audio (FFmpeg, optional -s start -d duration)
+         │         └──► trimmed_for_pyannote.wav (e.g., last 2 hours)
          │
-         ├─► [2] Extract Frames (FFmpeg) ──► frames/*.jpg
+         ├─► [2] Upload to Pyannote (POST /v1/media/input → PUT presigned URL)
+         │         └──► media://voiceprint-xxxx (temporary Pyannote URL)
          │
-         ├─► [3] Visual Changes (Gemini + CoT + Consistency)
-         │         └──► visual_events.json
+         ├─► [3] Pyannote Identify (POST /v1/identify)
+         │         ├── model: precision-2
+         │         ├── voiceprints: [{label: "nick", voiceprint: "<base64>"}]
+         │         ├── matching: {threshold: 50, exclusive: true}
+         │         └──► Job ID → Poll /v1/jobs/{id} → identification segments
+         │              └── 2,302 segments, SPEAKER_03 = nick
          │
-         ├─► [4] Voice Fingerprints (Pyannote + Validation)
-         │         └──► voice_fingerprints.json
+         ├─► [4] Merge with Deepgram (by timestamp overlap)
+         │         ├── For each Deepgram word: find Pyannote segment with max overlap
+         │         ├── Replace speaker number with name (nick, SPEAKER_XX)
+         │         ├── Time offset adjustment for trimmed audio
+         │         └──► 50,507 words with speaker_name field
          │
-         ├─► [5] Transcript Cues (Pattern + LLM Validation)
-         │         └──► transcript_cues.json
-         │
-         └─► [6] Classify (Debate + Consistency + Retrospective)
-                   └──► people_registry.json
-                              │
-                              ▼
-                   [7] Map Conversations (Hierarchical Summary)
-                              └──► conversation_map.json
-                                         │
-                                         ▼
-                   [8] Find Clips (5-Stage Pipeline)
-                              └──► clips.json
-                                         │
-                                         ▼
-                   [9] Extract (FFmpeg)
-                              └──► clips_v3/*.mp4
+         └─► [5] Collapse to utterances (group by speaker + 2s pause threshold)
+                   ├──► episode_258_transcript_v3.json  (structured, 2,347 utterances)
+                   ├──► episode_258_transcript_v3.txt   (readable text)
+                   └──► episode_258_transcript_v3_raw_words.json (word-level backup)
 ```
 
 ---
 
-## Data Contracts
+## Output Data Formats
 
-### Visual Events (`visual_events.json`)
+### Structured Utterance Transcript (`*_v3.json`)
+```json
+{
+    "format": "utterance_transcript_v3",
+    "utterances": [
+        {
+            "speaker": "nick",
+            "start": 10314.0,
+            "end": 10314.7,
+            "text": "What version is it?",
+            "word_count": 4
+        },
+        {
+            "speaker": "SPEAKER_10",
+            "start": 10316.2,
+            "end": 10316.8,
+            "text": "New American Standard.",
+            "word_count": 3
+        }
+    ],
+    "summary": {
+        "total_utterances": 2347,
+        "total_words": 50507,
+        "duration_seconds": 17498.2,
+        "speakers": {
+            "nick": {"total_words": 13240, "total_utterances": 545, ...},
+            "SPEAKER_04": {"total_words": 5250, "total_utterances": 316, ...}
+        }
+    },
+    "metadata": {
+        "pyannote_segments": 2302,
+        "words_matched": 21388,
+        "words_unmatched": 29119,
+        "time_offset": 10314.0,
+        "speaker_mapping": {"SPEAKER_03": "nick"}
+    }
+}
+```
+
+### Readable Transcript (`*_v3.txt`)
+```
+[2:51:53] nick: What version is it?
+[2:51:56] SPEAKER_10: New American Standard.
+[2:51:57] SPEAKER_06: Ask him if it has a mass.
+[2:52:19] nick: I haven't... I read the King James Version mostly.
+```
+
+### Visual Events (`visual_events.json`) - Future
 ```json
 {
     "events": [
@@ -320,88 +298,28 @@ video.mp4 + nick_sample.wav
                 "verified": true
             }
         }
-    ],
-    "total_changes": 15,
-    "uncertain_events": 2
+    ]
 }
 ```
 
-### People Registry (`people_registry.json`)
+### People Registry (`people_registry.json`) - Future
 ```json
 {
-    "nick": {
-        "voice_id": "speaker_0",
-        "visual_position": "left",
-        "total_talk_time": 8500.0
-    },
-    "panel": [
-        {
-            "name": "Dani",
-            "voice_id": "speaker_1",
-            "time_visible": 16500.0,
-            "classification_confidence": 0.95
-        }
-    ],
+    "nick": {"voice_id": "speaker_0", "total_talk_time": 8500.0},
+    "panel": [{"name": "Dani", "voice_id": "speaker_1", "confidence": 0.95}],
     "guests": [
         {
             "guest_id": "guest_1",
-            "voice_id": "speaker_5",
+            "voice_id": "SPEAKER_04",
             "arrival_time": 9720.0,
             "departure_time": 11400.0,
-            "duration": 1680.0,
-            "intro_cue": "what's up man",
-            "visual_description": "man with keffiyeh",
-            "classification": {
-                "method": "debate",
-                "advocate_score": 8,
-                "skeptic_score": 3,
-                "judge_verdict": "NEW_GUEST",
-                "confidence": 0.91
-            }
-        }
-    ],
-    "classification_metadata": {
-        "temporal_consistency_passed": true,
-        "retrospective_corrections": 2,
-        "final_confidence": 0.89
-    }
-}
-```
-
-### Conversation Map (`conversation_map.json`)
-```json
-{
-    "conversations": [
-        {
-            "guest_id": "guest_1",
-            "start_time": 9720.0,
-            "end_time": 11400.0,
-            "summary": {
-                "executive": "Heated debate about Israel-Palestine...",
-                "detailed": "The conversation began with...",
-                "chunk_count": 6
-            },
-            "topics": [
-                {
-                    "topic": "Gaza civilian casualties",
-                    "confidence": 0.92,
-                    "evidence_quotes": ["quote1", "quote2"],
-                    "time_range": [9800.0, 10200.0]
-                }
-            ],
-            "timeline": [
-                {"time": 9720.0, "entry": "Guest introduces himself as Palestinian-American"},
-                {"time": 9900.0, "entry": "Debate about civilian casualty numbers begins"},
-                {"time": 10500.0, "entry": "Nick challenges guest's source"}
-            ],
-            "mood": "contentious",
-            "winner": "NICK"
+            "classification": {"method": "debate", "confidence": 0.91}
         }
     ]
 }
 ```
 
-### Clips (`clips.json`)
+### Clips (`clips.json`) - Future
 ```json
 {
     "clips": [
@@ -409,39 +327,10 @@ video.mp4 + nick_sample.wav
             "clip_id": "clip_1",
             "guest_id": "guest_1",
             "type": "gotcha",
-            "contextual": {
-                "start_time": 9800.0,
-                "end_time": 10200.0,
-                "duration": 400.0,
-                "title": "Nick Destroys Guest's Source",
-                "story_arc": "Setup → Challenge → Revelation → Reaction"
-            },
-            "moment": {
-                "start_time": 10050.0,
-                "end_time": 10140.0,
-                "duration": 90.0,
-                "money_quote": "You didn't even read your own source!"
-            },
-            "scores": {
-                "hook": 9,
-                "conflict": 9,
-                "resolution": 10,
-                "shareability": 9,
-                "standalone": 8,
-                "total": 45
-            },
-            "verification": {
-                "quote_verified": true,
-                "timeline_verified": true,
-                "duration_verified": true,
-                "all_8_steps_passed": true
-            },
-            "persona_evaluation": {
-                "viral_expert": {"score": 9, "approved": true},
-                "content_creator": {"score": 8, "approved": true},
-                "casual_viewer": {"score": 8, "approved": true},
-                "critic": {"score": 7, "approved": true}
-            },
+            "contextual": {"start_time": 9800.0, "end_time": 10200.0, "duration": 400.0},
+            "moment": {"start_time": 10050.0, "end_time": 10140.0, "money_quote": "..."},
+            "scores": {"hook": 9, "conflict": 9, "total": 45},
+            "verification": {"all_8_steps_passed": true},
             "final_rank": 1,
             "confidence": 0.94
         }
@@ -451,90 +340,101 @@ video.mp4 + nick_sample.wav
 
 ---
 
-## File Structure (V3)
+## LLM Engineering Patterns
+
+| Pattern | Status | Where Used | How It Works |
+|---------|--------|------------|--------------|
+| Chain of Thought | ✅ | Visual detection | 6-step reasoning forced in prompt |
+| Self-Consistency | ✅ | Visual detection | 3 runs w/ temp variation, majority vote |
+| Multi-Pass Verify | ✅ | Visual detection | Forward, backward, holistic passes |
+| Multi-Agent Debate | ✅ Implemented | Classification (TODO) | Advocate vs Skeptic → Judge decides |
+| Temporal Consistency | ✅ Implemented | Classification (TODO) | Verify timeline makes sense |
+| Adversarial Critique | ✅ Implemented | Clip detection (TODO) | 6 attack vectors on own work |
+| Multi-Persona Eval | ✅ Implemented | Clip detection (TODO) | 4 personas evaluate each clip |
+| Verification Chain | 🔴 | Clip detection | 8-step programmatic validation |
+| Ensemble Ranking | ✅ Implemented | Clip detection (TODO) | Borda count across ranking methods |
+| Error Recovery | 🔴 | All stages | Fuzzy/semantic/keyword/LLM recovery |
+
+---
+
+## File Structure
 
 ```
 nick-matau-clipper/
+├── main.py                            # CLI entry point (1067 lines)
+├── CLAUDE.md                          # AI assistant instructions
+├── README.md                          # Project readme
+├── requirements.txt                   # Python dependencies
+├── .env                               # API keys (not committed)
+├── .env.example                       # API key template
+├── nick_voiceprint.json               # Nick's Pyannote voiceprint
+│
 ├── src/
 │   ├── __init__.py
 │   │
-│   │  # Existing (Keep)
-│   ├── downloader.py           # YouTube download
-│   ├── ingester.py             # Audio extraction
-│   ├── transcriber.py          # Deepgram transcription
-│   ├── visual_mapper.py        # Frame extraction (keep for frames)
-│   ├── speaker_mapper.py       # Nick voiceprint
-│   ├── extractor.py            # FFmpeg clip cutting
+│   │  # DATA COLLECTION (Phase 1) - All ✅ Working
+│   ├── downloader.py                  # YouTube download (yt-dlp)
+│   ├── ingester.py                    # Audio extraction (FFmpeg)
+│   ├── transcriber.py                 # Deepgram Nova-3 transcription
+│   ├── visual_mapper.py               # Frame extraction + Gemini
+│   ├── speaker_mapper.py              # Deepgram speaker mapping (V2)
+│   ├── extractor.py                   # FFmpeg clip cutting
+│   ├── timestamp_utils.py             # Timestamp helpers
 │   │
-│   │  # LLM Engineering Infrastructure (New)
-│   ├── anthropic_client.py     # Claude API wrapper
-│   ├── llm_engineering.py      # Self-consistency, debate, ensemble
-│   ├── error_recovery.py       # Recovery strategies
-│   ├── verification.py         # Verification chains
+│   │  # LLM ENGINEERING (Phase 1) - ✅ Working
+│   ├── anthropic_client.py            # Claude API wrapper (380 lines)
+│   ├── llm_engineering.py             # LLM patterns (940 lines)
 │   │
-│   │  # V3 Pipeline Modules (New)
-│   ├── visual_change_detector.py    # Frame comparison with CoT
-│   ├── voice_fingerprinter.py       # Multi-speaker tracking
-│   ├── transcript_cue_detector.py   # Greeting/exit detection
-│   ├── guest_classifier.py          # Multi-agent classification
-│   ├── conversation_mapper.py       # Hierarchical summarization
-│   ├── contextual_clip_finder.py    # 5-stage clip detection
+│   │  # IDENTITY DETECTION (Phase 2) - All ✅ Working
+│   ├── visual_change_detector.py      # CoT + consistency (500 lines)
+│   ├── voice_fingerprinter.py         # Pyannote + merge + utterances (1500 lines)
+│   ├── transcript_cue_detector.py     # Pattern + LLM validation (550 lines)
 │   │
-│   │  # Deprecated (Move to archive/)
-│   ├── conversation_segmenter.py    # → archived
-│   ├── clip_analyzer.py             # → archived
-│   ├── quote_clip_finder.py         # → archived (keep temporarily)
-│   └── smart_clip_finder.py         # → delete
+│   │  # V2 CLIP FINDING (Legacy)
+│   ├── quote_clip_finder.py           # ⚠️ Quote-based clips (V2, still usable)
+│   │
+│   │  # DEPRECATED
+│   ├── conversation_segmenter.py      # ❌ Replaced by V3
+│   ├── clip_analyzer.py               # ❌ Replaced by V3
+│   ├── smart_clip_finder.py           # ❌ Not used
+│   ├── analyzer.py                    # ❌ Old module
+│   └── sheets.py                      # ❌ Google Sheets (unused)
 │
 ├── prompts/
-│   ├── visual_cot.md               # Chain of Thought visual
-│   ├── visual_passes.md            # Three-pass verification
-│   ├── debate_advocate.md          # Argue FOR new guest
-│   ├── debate_skeptic.md           # Argue AGAINST new guest
-│   ├── debate_judge.md             # Judge the debate
-│   ├── temporal_consistency.md     # Timeline consistency
-│   ├── retrospective_review.md     # Review all classifications
-│   ├── clip_detection.md           # 5-criteria detection
-│   ├── clip_critique.md            # Adversarial self-critique
-│   ├── clip_personas.md            # Multi-persona evaluation
-│   ├── hierarchical_summary.md     # Conversation summarization
-│   └── topic_extraction.md         # Topic extraction
+│   ├── base_prompt.md                 # Base system prompt
+│   ├── clip_detection.md              # Clip finding prompt
+│   ├── frame_analysis.md              # Visual analysis prompt
+│   └── nick_preferences.md            # Nick's content style
 │
 ├── outputs/
-│   │  # Existing
-│   ├── *.mp4                       # Source videos
-│   ├── *_transcript.json           # Transcripts
-│   ├── *_frames/                   # Extracted frames
-│   │
-│   │  # V3 Outputs
-│   ├── visual_events.json          # Visual change events
-│   ├── voice_fingerprints.json     # Speaker fingerprints
-│   ├── transcript_cues.json        # Detected cues
-│   ├── people_registry.json        # Classified people
-│   ├── conversation_map.json       # Conversations + timeline
-│   ├── clips.json                  # Final clips
-│   └── clips_v3/                   # Extracted clip videos
-│
-├── docs/
-│   ├── ARCHITECTURE.md             # This file
-│   ├── TASKS.md                    # Implementation tasks
-│   ├── STATUS.md                   # Progress status
-│   ├── PIPELINE_SUMMARY.md         # V2 → V3 transition
-│   └── PRD.md                      # Product requirements
+│   ├── *.mp4, *.wav                   # Source media
+│   ├── *_transcript.json              # Deepgram transcripts
+│   ├── episode_258_transcript_v3.json # ✅ Structured utterances (NEW)
+│   ├── episode_258_transcript_v3.txt  # ✅ Readable transcript (NEW)
+│   ├── episode_258_transcript_v3_raw_words.json # ✅ Word-level (NEW)
+│   ├── episode_258_frames/            # Extracted frames
+│   ├── clips_v2/                      # V2 extracted clips
+│   └── clips_manual/                  # Manually cut clips
 │
 ├── tests/
-│   ├── test_anthropic_client.py
-│   ├── test_llm_engineering.py
-│   ├── test_visual_change_detector.py
-│   ├── test_guest_classifier.py
-│   ├── test_conversation_mapper.py
-│   └── test_contextual_clip_finder.py
+│   ├── test_anthropic_client.py       # ✅
+│   ├── test_llm_engineering.py        # ✅
+│   ├── test_visual_change_detector.py # ✅
+│   ├── test_voice_fingerprinter.py    # ✅
+│   ├── test_transcript_cue_detector.py# ✅
+│   ├── test_transcriber.py            # ✅
+│   ├── test_downloader.py             # ✅
+│   ├── test_ingester.py               # ✅
+│   ├── test_extractor.py              # ✅
+│   └── test_timestamp_utils.py        # ✅
 │
-├── CLAUDE.md                       # AI assistant instructions
-├── main.py                         # CLI entry point
-├── requirements.txt
-├── .env.example
-└── .gitignore
+└── docs/
+    ├── ARCHITECTURE.md                # This file
+    ├── TASKS.md                       # Implementation checklist
+    ├── STATUS.md                      # Session progress
+    ├── PIPELINE_SUMMARY.md            # V2→V3 transition
+    ├── PRD.md                         # Product requirements
+    └── TRANSCRIBER_TASK.md            # Transcriber design doc
 ```
 
 ---
@@ -545,42 +445,21 @@ nick-matau-clipper/
 
 | API | Model | Purpose | Cost/Unit |
 |-----|-------|---------|-----------|
-| Deepgram | Nova-3 | Transcription | $0.0043/min |
-| Gemini | 2.5 Flash | Visual analysis | ~$0.001/image |
-| Claude | Sonnet 4.5 | Text analysis | $3/$15 per MTok |
-| Pyannote | - | Voice ID | ~$0.10/min |
+| Deepgram | Nova-3 | Transcription (word-level) | $0.0043/min |
+| Gemini | 2.5 Flash | Visual analysis + V2 clips | ~$0.001/image |
+| Claude | Sonnet 4.5 | Text analysis, LLM patterns | $3/$15 per MTok |
+| Pyannote | precision-2 | Voice ID, diarization | ~$0.10/min |
 
 ### Cost per 4-Hour Video
 
 | Stage | Cost |
 |-------|------|
-| Transcription | $1.25 |
-| Visual (with engineering) | $3.00 |
-| Voice correlation | $0.50 |
-| Transcript cues | $1.00 |
-| Classification (debate) | $2.00 |
-| Retrospective review | $0.50 |
-| Conversation summaries | $1.50 |
-| Clip detection (5-stage) | $4.00 |
-| Persona evaluation | $1.50 |
-| Verification | $0.75 |
-| **Total** | **~$16** |
-
----
-
-## Error Handling
-
-### Recovery Strategies
-
-1. **Quote Not Found**: Fuzzy → Semantic → Keyword → LLM recovery
-2. **Classification Inconsistent**: Temporal check → Auto-fix → Flag for review
-3. **Verification Failed**: Boundary adjustment → Duration fix → Reject
-4. **Low Confidence**: Flag for human review (don't auto-reject)
-
-### Confidence Thresholds
-
-| Level | Range | Action |
-|-------|-------|--------|
-| High | ≥ 0.85 | Auto-accept |
-| Medium | 0.70-0.85 | Include with flag |
-| Low | < 0.70 | Attempt recovery or reject |
+| Transcription (Deepgram) | $1.25 |
+| Visual detection (Gemini, with engineering) | $3.00 |
+| Voice identification (Pyannote, last 2h) | $6.00 |
+| Transcript cues (Claude) | $1.00 |
+| Classification (Claude, debate) | $2.00 |
+| Conversation summaries (Claude) | $1.50 |
+| Clip detection (Claude, 5-stage) | $4.00 |
+| Persona evaluation + verification | $2.25 |
+| **Total** | **~$22** |

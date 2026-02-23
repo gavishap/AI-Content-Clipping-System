@@ -2,29 +2,28 @@
 Nick Matau AI Content Clipper - CLI Entry Point
 
 Owner: Gabriel
-Status: Implemented (Full pipeline)
+Status: Implemented (Full V3 pipeline)
 
 Usage:
-    # Existing commands
+    # ONE-COMMAND full pipeline (recommended)
+    python main.py pipeline-v3 "https://youtube.com/watch?v=..." --max-clips 10
+    python main.py pipeline-v3 "https://youtube.com/watch?v=..." -n 5 -o my_folder
+
+    # Individual commands
     python main.py download "https://youtube.com/watch?v=..." --output ./data
     python main.py transcribe video.mp4 --output transcript.json
     python main.py transcribe-url "https://youtube.com/watch?v=..." --output ./outputs
-    
-    # New pipeline commands
     python main.py create-voiceprint nick_sample.wav --output nick_voiceprint.json
-    python main.py map-speakers audio.wav --voiceprint nick_voiceprint.json --output voice_map.json
-    python main.py map-visual video.mp4 --interval 30 --output visual_map.json
-    python main.py segment --voice voice_map.json --visual visual_map.json --output conversations.json
-    python main.py find-clips --conversations conversations.json --transcript transcript.json --voice voice_map.json --output clips.json
-    
-    # Full pipeline
-    python main.py pipeline video.mp4 --nick-sample nick_sample.wav --output ./outputs
+    python main.py enhance-transcript stream.wav -t transcript.json -v nick_voiceprint.json
+    python main.py find-clips-v3 enhanced_transcript.json -o outputs/clips_v3
 """
 
 import asyncio
 import json
 import logging
 import os
+import re
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -86,7 +85,7 @@ def get_pyannote_api_key() -> str:
 
 
 @click.group()
-@click.version_option(version="0.2.0")
+@click.version_option(version="0.3.0")
 def cli():
     """Nick Matau AI Content Clipper - Extract viral clips from livestreams."""
     pass
@@ -269,30 +268,43 @@ def transcribe_url(url: str, output: str):
 @cli.command("create-voiceprint")
 @click.argument("sample_path", type=click.Path(exists=True))
 @click.option("--output", "-o", default="nick_voiceprint.json", help="Output JSON file")
-def create_voiceprint(sample_path: str, output: str):
+@click.option("--name", "-n", default="nick", help="Speaker name (default: nick)")
+def create_voiceprint(sample_path: str, output: str, name: str):
     """
-    Create a voiceprint from a clean audio sample of Nick.
+    Create a voiceprint from a clean audio sample using Pyannote API.
     
-    SAMPLE_PATH: Path to 30-second audio of Nick speaking alone (no overlapping voices)
+    SAMPLE_PATH: Path to 30-60 second audio of the speaker (no overlapping voices)
+    
+    For best results:
+    - Use clear audio with minimal background noise
+    - Only one person speaking
+    - 30-60 seconds is ideal
+    - WAV or MP3 format
+    
+    Example:
+        python main.py create-voiceprint nick_sample.wav -o nick_voiceprint.json
     """
-    from src.speaker_mapper import SpeakerMapper
+    from src.voice_fingerprinter import VoiceFingerprinter
     
-    click.echo(f"Creating voiceprint from: {sample_path}")
+    click.echo(f"Creating voiceprint for '{name}' from: {sample_path}")
+    click.echo("   Using Pyannote API for voice fingerprinting...")
     start_time = time.time()
     
     try:
-        mapper = SpeakerMapper()
-        voiceprint_id = mapper.create_nick_voiceprint_sync(sample_path)
+        fingerprinter = VoiceFingerprinter()
+        voiceprint = fingerprinter.create_voiceprint_sync(sample_path, name)
         
-        # Save voiceprint ID to file
-        with open(output, 'w') as f:
-            json.dump({'voiceprint_id': voiceprint_id}, f, indent=2)
+        # Save voiceprint to file
+        voiceprint.save(output)
         
         elapsed = time.time() - start_time
-        click.echo(f"Voiceprint created!")
-        click.echo(f"   ID: {voiceprint_id}")
+        click.echo(f"\nVoiceprint created successfully!")
+        click.echo(f"   Speaker: {voiceprint.speaker_name}")
+        click.echo(f"   ID: {voiceprint.voiceprint_id}")
         click.echo(f"   Saved to: {output}")
         click.echo(f"   Time: {elapsed:.1f}s")
+        click.echo(f"\nUse this voiceprint to identify {name} in videos:")
+        click.echo(f"   python main.py analyze-voices audio.wav --voiceprint {output}")
         
     except Exception as e:
         logger.exception("Voiceprint creation failed")
@@ -335,6 +347,292 @@ def map_speakers(audio_path: str, voiceprint: str, output: str):
         
     except Exception as e:
         logger.exception("Speaker mapping failed")
+        raise click.ClickException(f"Failed: {e}")
+
+
+@cli.command("analyze-voices")
+@click.argument("audio_path", type=click.Path(exists=True))
+@click.option("--voiceprint", "-v", default=None, type=click.Path(exists=True),
+              help="Path to Nick's voiceprint JSON file (optional but recommended)")
+@click.option("--visual-events", "-e", default=None, type=click.Path(exists=True),
+              help="Path to visual events JSON for cross-validation (optional)")
+@click.option("--transcript-cues", "-c", default=None, type=click.Path(exists=True),
+              help="Path to transcript cues JSON for cross-validation (optional)")
+@click.option("--output", "-o", default="voice_analysis.json", help="Output JSON file")
+def analyze_voices(
+    audio_path: str, 
+    voiceprint: str, 
+    visual_events: str,
+    transcript_cues: str,
+    output: str
+):
+    """
+    Analyze audio to detect all speakers using Pyannote API (V3).
+    
+    AUDIO_PATH: Path to audio file (WAV/MP3) - supports files up to 24 hours!
+    
+    This command uses the Pyannote API to:
+    - Detect all unique speakers (diarization)
+    - Identify Nick using his voiceprint (if provided)
+    - Track when new speakers first appear
+    - Cross-validate with visual events and transcript cues
+    
+    Examples:
+        # Basic diarization (no Nick identification)
+        python main.py analyze-voices stream.wav
+        
+        # With Nick identification
+        python main.py analyze-voices stream.wav -v nick_voiceprint.json
+        
+        # Full cross-modal validation
+        python main.py analyze-voices stream.wav \\
+            -v nick_voiceprint.json \\
+            -e visual_events.json \\
+            -c transcript_cues.json
+    """
+    from src.voice_fingerprinter import (
+        VoiceFingerprinter, Voiceprint, get_guest_arrivals, format_timestamp
+    )
+    
+    click.echo(f"Analyzing voices in: {audio_path}")
+    click.echo("   Using Pyannote API for speaker diarization...")
+    
+    # Check file size
+    file_size_mb = Path(audio_path).stat().st_size / (1024 * 1024)
+    click.echo(f"   File size: {file_size_mb:.1f} MB")
+    
+    if file_size_mb > 500:
+        click.echo("   Note: Large file - diarization may take 10-30 minutes...")
+    
+    start_time = time.time()
+    
+    try:
+        fingerprinter = VoiceFingerprinter()
+        
+        # Load voiceprint if provided
+        nick_voiceprint_id = None
+        if voiceprint:
+            vp = Voiceprint.load(voiceprint)
+            nick_voiceprint_id = vp.voiceprint_id
+            click.echo(f"   Nick voiceprint: {nick_voiceprint_id[:20]}...")
+        
+        # Load visual events if provided
+        visual_data = None
+        if visual_events:
+            with open(visual_events, 'r', encoding='utf-8') as f:
+                visual_data = json.load(f)
+            if isinstance(visual_data, dict):
+                visual_data = visual_data.get('events', [])
+            click.echo(f"   Visual events: {len(visual_data)} events")
+        
+        # Load transcript cues if provided
+        cue_data = None
+        if transcript_cues:
+            with open(transcript_cues, 'r', encoding='utf-8') as f:
+                cue_data = json.load(f)
+            if isinstance(cue_data, dict):
+                cue_data = cue_data.get('cues', [])
+            click.echo(f"   Transcript cues: {len(cue_data)} cues")
+        
+        # Run analysis
+        click.echo("\n   Running diarization (this may take a while)...")
+        result = fingerprinter.analyze_audio_sync(
+            audio_path,
+            nick_voiceprint_id=nick_voiceprint_id,
+            visual_events=visual_data,
+            transcript_cues=cue_data,
+        )
+        
+        # Save results
+        result.save(output)
+        
+        elapsed = time.time() - start_time
+        
+        # Summary
+        click.echo(f"\nVoice analysis complete!")
+        click.echo(f"   Total duration: {result.total_duration / 60:.1f} minutes")
+        click.echo(f"   Speakers detected: {len(result.speakers)}")
+        click.echo(f"   New speaker events: {len(result.new_speaker_events)}")
+        
+        if result.nick_speaker_label:
+            nick_info = result.speakers.get(result.nick_speaker_label)
+            if nick_info:
+                click.echo(f"   Nick identified: {result.nick_speaker_label}")
+                click.echo(f"   Nick talk time: {nick_info.total_duration / 60:.1f} minutes")
+        
+        if result.validated_changes:
+            click.echo(f"   Cross-validated changes: {len(result.validated_changes)}")
+            guests = get_guest_arrivals(result, min_confidence=0.6)
+            if guests:
+                click.echo(f"\n   Likely guest arrivals:")
+                for g in guests[:10]:  # Show top 10
+                    click.echo(
+                        f"      {format_timestamp(g.timestamp)}: "
+                        f"{g.speaker_label} ({g.validation_type}, conf={g.final_confidence:.2f})"
+                    )
+        
+        click.echo(f"\n   Saved to: {output}")
+        click.echo(f"   Time: {elapsed / 60:.1f} minutes")
+        
+    except Exception as e:
+        logger.exception("Voice analysis failed")
+        raise click.ClickException(f"Failed: {e}")
+
+
+@cli.command("enhance-transcript")
+@click.argument("audio_path", type=click.Path(exists=True))
+@click.option("--transcript", "-t", required=True, type=click.Path(exists=True),
+              help="Path to existing Deepgram transcript JSON")
+@click.option("--voiceprint", "-v", required=True, type=click.Path(exists=True),
+              help="Path to Nick's voiceprint JSON file")
+@click.option("--start-time", "-s", default=0.0, type=float,
+              help="Start offset in seconds (to trim audio for cost savings)")
+@click.option("--duration", "-d", default=None, type=float,
+              help="Duration in seconds to process (default: to end of file)")
+@click.option("--output", "-o", default="enhanced_transcript.json",
+              help="Output JSON file for enhanced transcript")
+@click.option("--match-threshold", default=50, type=int,
+              help="Pyannote voiceprint match confidence threshold 0-100 (default: 50)")
+def enhance_transcript(
+    audio_path: str,
+    transcript: str,
+    voiceprint: str,
+    start_time: float,
+    duration: float,
+    output: str,
+    match_threshold: int,
+):
+    """
+    Re-analyze audio with Pyannote identification and merge with Deepgram transcript.
+
+    Uses Nick's voiceprint to identify his voice via Pyannote, then merges
+    the speaker labels back into the existing Deepgram word-level transcript.
+    The result is a transcript where Nick's words are tagged "nick" and other
+    speakers get Pyannote labels (SPEAKER_01, SPEAKER_02, etc.).
+
+    AUDIO_PATH: Path to WAV/MP3 audio file
+
+    Examples:
+        # Full stream
+        python main.py enhance-transcript stream.wav -t transcript.json -v nick_voiceprint.json
+
+        # Last 2 hours only (saves cost)
+        python main.py enhance-transcript stream.wav -t transcript.json -v nick_voiceprint.json -s 10714
+    """
+    from src.voice_fingerprinter import (
+        VoiceFingerprinter, Voiceprint,
+        trim_audio, merge_pyannote_speakers_with_transcript,
+        collapse_words_to_utterances, build_readable_transcript,
+        build_structured_transcript,
+    )
+
+    click.echo(f"Enhancing transcript with Pyannote speaker identification")
+    click.echo(f"   Audio: {audio_path}")
+    click.echo(f"   Transcript: {transcript}")
+    click.echo(f"   Voiceprint: {voiceprint}")
+    total_start = time.time()
+
+    try:
+        # Load voiceprint
+        vp = Voiceprint.load(voiceprint)
+        click.echo(f"   Nick voiceprint loaded: {vp.voiceprint_id[:30]}...")
+
+        # Load transcript
+        with open(transcript, 'r', encoding='utf-8') as f:
+            transcript_data = json.load(f)
+        total_words = len(transcript_data.get('words', []))
+        click.echo(f"   Transcript loaded: {total_words} words")
+
+        # Trim audio if start_time specified
+        actual_audio = audio_path
+        temp_trimmed = None
+        if start_time > 0 or duration is not None:
+            trim_output = str(Path(audio_path).parent / "trimmed_for_pyannote.wav")
+            click.echo(f"\n   Trimming audio: start={start_time}s, duration={duration}s")
+            trim_audio(audio_path, trim_output, start_time, duration)
+            actual_audio = trim_output
+            temp_trimmed = trim_output
+
+            file_size_mb = Path(trim_output).stat().st_size / (1024 * 1024)
+            click.echo(f"   Trimmed file: {file_size_mb:.1f} MB")
+
+        # Run Pyannote identification
+        click.echo(f"\n   Running Pyannote speaker identification...")
+        click.echo(f"   Match threshold: {match_threshold}%")
+        click.echo(f"   This may take 10-30 minutes for long audio...")
+
+        fingerprinter = VoiceFingerprinter()
+        segments, speaker_mapping, job_id = fingerprinter.identify_speakers_sync(
+            actual_audio,
+            {"nick": vp.voiceprint_id},
+            match_threshold=match_threshold,
+        )
+
+        click.echo(f"   Pyannote job complete: {job_id}")
+        click.echo(f"   Segments: {len(segments)}")
+        click.echo(f"   Speaker mapping: {speaker_mapping}")
+
+        # Count unique speakers
+        unique_speakers = set(seg.speaker_label for seg in segments)
+        click.echo(f"   Unique speakers detected: {len(unique_speakers)}")
+
+        # Merge with Deepgram transcript
+        click.echo(f"\n   Merging Pyannote speakers with Deepgram words...")
+        enhanced = merge_pyannote_speakers_with_transcript(
+            segments, speaker_mapping, transcript_data,
+            time_offset=start_time,
+        )
+
+        # Collapse words into speaker utterances
+        click.echo(f"\n   Collapsing words into speaker utterances...")
+        utterances = collapse_words_to_utterances(enhanced, max_pause=2.0)
+        click.echo(f"   {len(utterances)} utterances created from {len(enhanced.get('words', []))} words")
+
+        # Build outputs
+        output_base = Path(output).stem
+        output_dir = Path(output).parent
+
+        # 1. Structured JSON (utterances - for LLM analysis)
+        structured_path = output_dir / f"{output_base}.json"
+        merge_meta = enhanced.get('merge_metadata', {})
+        structured = build_structured_transcript(utterances, metadata=merge_meta)
+        with open(structured_path, 'w', encoding='utf-8') as f:
+            json.dump(structured, f, indent=2, ensure_ascii=False)
+
+        # 2. Readable text transcript (for human review + LLM context)
+        txt_path = output_dir / f"{output_base}.txt"
+        readable = build_readable_transcript(utterances)
+        with open(txt_path, 'w', encoding='utf-8') as f:
+            f.write(readable)
+
+        # 3. Raw word-level JSON (keep for precise timestamp lookups)
+        raw_path = output_dir / f"{output_base}_raw_words.json"
+        with open(raw_path, 'w', encoding='utf-8') as f:
+            json.dump(enhanced, f, indent=2, ensure_ascii=False)
+
+        # Summary
+        speakers_named = structured.get('summary', {}).get('speakers', {})
+        elapsed = time.time() - total_start
+
+        click.echo(f"\nTranscript enhancement complete!")
+        click.echo(f"   Structured JSON (for LLM): {structured_path}")
+        click.echo(f"   Readable text:             {txt_path}")
+        click.echo(f"   Raw word-level:            {raw_path}")
+        click.echo(f"   Utterances: {len(utterances)}")
+        click.echo(f"   Words matched to Pyannote: {merge_meta.get('words_matched', 0)}")
+        click.echo(f"   Words unmatched (fallback): {merge_meta.get('words_unmatched', 0)}")
+        click.echo(f"   Speakers:")
+        for name, stats in sorted(speakers_named.items(), key=lambda x: -x[1]['total_words']):
+            click.echo(f"      {name}: {stats['total_words']} words, {stats['total_utterances']} turns")
+        click.echo(f"   Total time: {elapsed / 60:.1f} minutes")
+
+        # Clean up trimmed file
+        if temp_trimmed and os.path.exists(temp_trimmed):
+            os.unlink(temp_trimmed)
+            click.echo(f"   Cleaned up trimmed audio")
+
+    except Exception as e:
+        logger.exception("Transcript enhancement failed")
         raise click.ClickException(f"Failed: {e}")
 
 
@@ -717,6 +1015,375 @@ def pipeline(
     except Exception as e:
         logger.exception("Pipeline failed")
         raise click.ClickException(f"Pipeline failed: {e}")
+
+
+# =============================================================================
+# V3 CLIP FINDER
+# =============================================================================
+
+@cli.command('find-clips-v3')
+@click.argument('transcript_path', type=click.Path(exists=True))
+@click.option('-o', '--output', default='outputs/clips_v3', help='Output directory')
+@click.option('--max-clips', default=20, help='Maximum clips to return')
+@click.option('--min-score', default=45.0, help='Minimum composite score (0-100)')
+@click.option('--profile', default=None, help='Path to nick_clip_profile.json')
+def find_clips_v3(transcript_path: str, output: str, max_clips: int, min_score: float, profile: str):
+    """
+    Find clip-worthy moments using V3 data-driven pipeline.
+    
+    Uses the Nick Clip Profile (extracted from 15 real clips) with a 5-pass pipeline:
+    detect -> score -> filter -> reflect -> debate -> rank
+    
+    Input: Enhanced transcript (.json or .txt) from enhance-transcript command.
+    Output: Ranked clips with per-pass explanations in the output directory.
+    
+    Example:
+        python main.py find-clips-v3 outputs/episode_258_transcript_v3.json -o outputs/clips_v3
+    """
+    from src.clip_finder_v3 import find_clips_sync
+    
+    click.echo("=" * 60)
+    click.echo("CLIP FINDER V3 — Data-Driven 5-Pass Pipeline")
+    click.echo("=" * 60)
+    click.echo(f"Transcript: {transcript_path}")
+    click.echo(f"Output dir: {output}")
+    click.echo(f"Max clips:  {max_clips}")
+    click.echo(f"Min score:  {min_score}")
+    click.echo()
+    
+    start_time = time.time()
+    
+    try:
+        clips = find_clips_sync(
+            transcript_path=transcript_path,
+            output_dir=output,
+            max_clips=max_clips,
+            min_score=min_score,
+            profile_path=profile,
+        )
+        
+        elapsed = time.time() - start_time
+        click.echo()
+        click.echo("=" * 60)
+        click.echo(f"COMPLETE — {len(clips)} clips found in {elapsed:.1f}s")
+        click.echo("=" * 60)
+        click.echo()
+        
+        for i, clip in enumerate(clips):
+            time_str = f"{int(clip.start_time // 3600)}:{int((clip.start_time % 3600) // 60):02d}:{int(clip.start_time % 60):02d}"
+            click.echo(
+                f"  #{i+1} [{clip.composite_score:.0f}/100] {clip.clip_type} @ {time_str} "
+                f"({clip.duration:.0f}s) — {clip.hook[:50]}..."
+            )
+        
+        click.echo(f"\nResults: {output}/clips_v3_results.json")
+        click.echo(f"Report:  {output}/clips_v3_report.md")
+        
+    except Exception as e:
+        logger.exception("V3 Clip Finder failed")
+        raise click.ClickException(f"V3 Clip Finder failed: {e}")
+
+
+# =============================================================================
+# V3 FULL PIPELINE (URL -> Clips)
+# =============================================================================
+
+@cli.command('pipeline-v3')
+@click.argument('url')
+@click.option('--max-clips', '-n', default=10, help='Number of clips to extract (default: 10)')
+@click.option('--output', '-o', default=None, help='Output folder name (default: auto from video title)')
+@click.option('--voiceprint', '-v', default='nick_voiceprint.json',
+              type=click.Path(exists=True), help='Path to Nick voiceprint JSON')
+@click.option('--min-score', default=40.0, help='Minimum composite score (0-100)')
+@click.option('--quality', '-q', default='medium',
+              type=click.Choice(['fast', 'medium', 'high']), help='Clip video quality')
+def pipeline_v3(url: str, max_clips: int, output: str, voiceprint: str,
+                min_score: float, quality: str):
+    """
+    Full end-to-end V3 pipeline: YouTube URL -> extracted clips.
+
+    Downloads the video, transcribes it, identifies Nick via Pyannote,
+    runs the 5-pass AI clip finder, and extracts the top clips as MP4 files.
+
+    \b
+    URL: YouTube video URL
+
+    \b
+    Examples:
+        python main.py pipeline-v3 "https://youtube.com/watch?v=..." --max-clips 10
+        python main.py pipeline-v3 "https://youtube.com/watch?v=..." -n 5 -o my_run
+    """
+    from src.downloader import YouTubeDownloader
+    from src.ingester import VideoIngester
+    from src.transcriber import Transcriber
+    from src.voice_fingerprinter import (
+        VoiceFingerprinter, Voiceprint,
+        merge_pyannote_speakers_with_transcript,
+        collapse_words_to_utterances, build_readable_transcript,
+        build_structured_transcript,
+    )
+    from src.clip_finder_v3 import ClipFinderV3
+    from src.extractor import ClipExtractor
+
+    pipeline_start = time.time()
+    api_key = get_deepgram_api_key()
+
+    click.echo("=" * 60)
+    click.echo("PIPELINE V3 — Full End-to-End Clip Extraction")
+    click.echo("=" * 60)
+    click.echo(f"URL:        {url}")
+    click.echo(f"Max clips:  {max_clips}")
+    click.echo(f"Min score:  {min_score}")
+    click.echo(f"Quality:    {quality}")
+    click.echo()
+
+    try:
+        # =================================================================
+        # STEP 1: Download
+        # =================================================================
+        click.echo("=" * 50)
+        click.echo("STEP 1/6: Downloading video")
+        click.echo("=" * 50)
+        step_start = time.time()
+
+        # Download to a temp location first to get the title
+        temp_dir = Path("outputs/_temp_download")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        downloader = YouTubeDownloader(output_dir=str(temp_dir))
+        download_result = downloader.download(url)
+
+        video_title = download_result.title
+        duration_min = download_result.duration_seconds / 60
+        click.echo(f"   Title:    {video_title}")
+        click.echo(f"   Duration: {duration_min:.1f} minutes")
+        click.echo(f"   Time:     {time.time() - step_start:.1f}s")
+
+        # Determine output folder
+        if output is None:
+            safe_name = re.sub(r'[<>:"/\\|?*]', '', video_title)
+            safe_name = re.sub(r'\s+', '_', safe_name)[:60]
+            output = safe_name
+        output_dir = Path("outputs") / output
+        output_dir.mkdir(parents=True, exist_ok=True)
+        clips_dir = output_dir / "clips"
+        clips_dir.mkdir(exist_ok=True)
+
+        # Move video to output dir
+        video_src = Path(download_result.video_path)
+        video_path = output_dir / video_src.name
+        if not video_path.exists():
+            shutil.move(str(video_src), str(video_path))
+        # Clean up temp dir
+        try:
+            temp_dir.rmdir()
+        except OSError:
+            pass
+
+        click.echo(f"   Output:   {output_dir}")
+
+        # =================================================================
+        # STEP 2: Extract Audio
+        # =================================================================
+        click.echo("\n" + "=" * 50)
+        click.echo("STEP 2/6: Extracting audio")
+        click.echo("=" * 50)
+        step_start = time.time()
+
+        audio_path = output_dir / (video_path.stem + ".wav")
+        if audio_path.exists():
+            click.echo(f"   Using existing: {audio_path.name}")
+        else:
+            ingester = VideoIngester(str(video_path))
+            extracted = ingester.extract_audio(str(audio_path))
+            click.echo(f"   Audio: {Path(extracted).name}")
+        click.echo(f"   Time:  {time.time() - step_start:.1f}s")
+
+        # =================================================================
+        # STEP 3: Transcribe with Deepgram
+        # =================================================================
+        click.echo("\n" + "=" * 50)
+        click.echo("STEP 3/6: Transcribing with Deepgram")
+        click.echo("=" * 50)
+        step_start = time.time()
+
+        transcript_path = output_dir / "transcript.json"
+        if transcript_path.exists():
+            click.echo(f"   Using existing transcript")
+            with open(transcript_path, 'r', encoding='utf-8') as f:
+                transcript_data = json.load(f)
+            word_count = len(transcript_data.get('words', []))
+        else:
+            transcriber = Transcriber(api_key)
+            transcript_obj = transcriber.transcribe_sync(str(audio_path))
+            transcript_obj.save(str(transcript_path))
+            word_count = transcript_obj.word_count
+            with open(transcript_path, 'r', encoding='utf-8') as f:
+                transcript_data = json.load(f)
+
+        click.echo(f"   Words: {word_count}")
+        deepgram_cost = (download_result.duration_seconds / 60) * 0.0043
+        click.echo(f"   Cost:  ~${deepgram_cost:.2f}")
+        click.echo(f"   Time:  {time.time() - step_start:.1f}s")
+
+        # =================================================================
+        # STEP 4: Enhance with Pyannote (identify Nick)
+        # =================================================================
+        click.echo("\n" + "=" * 50)
+        click.echo("STEP 4/6: Enhancing transcript (Pyannote + Nick ID)")
+        click.echo("=" * 50)
+        step_start = time.time()
+
+        enhanced_path = output_dir / "enhanced_transcript.json"
+        if enhanced_path.exists():
+            click.echo(f"   Using existing enhanced transcript")
+        else:
+            vp = Voiceprint.load(voiceprint)
+            click.echo(f"   Nick voiceprint: {vp.voiceprint_id[:20]}...")
+            click.echo(f"   Running Pyannote identification (may take 5-30 min)...")
+
+            fingerprinter = VoiceFingerprinter()
+            segments, speaker_mapping, job_id = fingerprinter.identify_speakers_sync(
+                str(audio_path),
+                {"nick": vp.voiceprint_id},
+                match_threshold=50,
+            )
+
+            click.echo(f"   Pyannote job:  {job_id}")
+            click.echo(f"   Segments:      {len(segments)}")
+            click.echo(f"   Nick mapping:  {speaker_mapping}")
+
+            # Merge with Deepgram
+            enhanced = merge_pyannote_speakers_with_transcript(
+                segments, speaker_mapping, transcript_data, time_offset=0.0,
+            )
+            utterances = collapse_words_to_utterances(enhanced, max_pause=2.0)
+            click.echo(f"   Utterances:    {len(utterances)}")
+
+            # Save all three formats
+            merge_meta = enhanced.get('merge_metadata', {})
+            structured = build_structured_transcript(utterances, metadata=merge_meta)
+            with open(enhanced_path, 'w', encoding='utf-8') as f:
+                json.dump(structured, f, indent=2, ensure_ascii=False)
+
+            txt_path = output_dir / "enhanced_transcript.txt"
+            readable = build_readable_transcript(utterances)
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                f.write(readable)
+
+            raw_path = output_dir / "enhanced_transcript_raw_words.json"
+            with open(raw_path, 'w', encoding='utf-8') as f:
+                json.dump(enhanced, f, indent=2, ensure_ascii=False)
+
+        click.echo(f"   Time:  {(time.time() - step_start) / 60:.1f} min")
+
+        # =================================================================
+        # STEP 5: V3 Clip Finder (5-pass)
+        # =================================================================
+        click.echo("\n" + "=" * 50)
+        click.echo("STEP 5/6: Finding clips (5-pass AI pipeline)")
+        click.echo("=" * 50)
+        step_start = time.time()
+
+        results_path = clips_dir / "clips_v3_results.json"
+        if results_path.exists():
+            click.echo(f"   Using existing clip results")
+            with open(results_path, 'r', encoding='utf-8') as f:
+                clip_results_data = json.load(f)
+            clip_count = clip_results_data.get('total_clips', 0)
+            clips_list = None  # will use JSON for extraction
+        else:
+            finder = ClipFinderV3()
+            clips_list = asyncio.run(finder.find_clips(
+                str(enhanced_path),
+                max_clips=max_clips,
+                min_score=min_score,
+            ))
+            finder.save_results(clips_list, str(clips_dir))
+            clip_count = len(clips_list)
+            claude_cost = finder.client.cost_tracker.total_cost
+            click.echo(f"   Claude cost: ${claude_cost:.2f}")
+
+        click.echo(f"   Clips found: {clip_count}")
+        click.echo(f"   Time:  {(time.time() - step_start) / 60:.1f} min")
+
+        # =================================================================
+        # STEP 6: Extract video clips with FFmpeg
+        # =================================================================
+        click.echo("\n" + "=" * 50)
+        click.echo("STEP 6/6: Extracting video clips")
+        click.echo("=" * 50)
+        step_start = time.time()
+
+        # Load clip data for extraction
+        with open(clips_dir / "clips_v3_results.json", 'r', encoding='utf-8') as f:
+            clip_results_data = json.load(f)
+
+        extract_list = []
+        for c in clip_results_data['clips']:
+            clip_type = c['clip_type']
+            hook_short = c['hook'][:40]
+            extract_list.append({
+                'clip_id': c['clip_id'],
+                'start_time': c['start_time'],
+                'end_time': c['end_time'],
+                'title': "{}_{}".format(clip_type, hook_short),
+            })
+
+        async def _extract():
+            extractor = ClipExtractor(str(video_path), str(clips_dir))
+            results = await extractor.extract_clips(
+                extract_list, quality=quality, padding_start=0.5, padding_end=0.5
+            )
+            extractor.save_results(results, str(clips_dir / "extraction_results.json"))
+            return results
+
+        extraction_results = asyncio.run(_extract())
+        success_count = sum(1 for r in extraction_results if r.status == "success")
+        total_mb = sum(r.file_size_mb for r in extraction_results)
+
+        click.echo(f"   Extracted: {success_count}/{len(extraction_results)} clips")
+        click.echo(f"   Total size: {total_mb:.1f} MB")
+        click.echo(f"   Time:  {time.time() - step_start:.1f}s")
+
+        # =================================================================
+        # SUMMARY
+        # =================================================================
+        total_elapsed = time.time() - pipeline_start
+        click.echo("\n" + "=" * 60)
+        click.echo("PIPELINE V3 COMPLETE!")
+        click.echo("=" * 60)
+        click.echo(f"   Video:        {video_title}")
+        click.echo(f"   Duration:     {duration_min:.1f} min")
+        click.echo(f"   Clips:        {success_count}")
+        click.echo(f"   Total time:   {total_elapsed / 60:.1f} min")
+        click.echo(f"   Output:       {output_dir}")
+        click.echo()
+
+        # Print clip table
+        click.echo("Top clips:")
+        for c in clip_results_data['clips']:
+            st = c['start_time']
+            ts = "{}:{:02d}:{:02d}".format(
+                int(st // 3600), int((st % 3600) // 60), int(st % 60)
+            )
+            click.echo(
+                "  #{} [{:.0f}/100] {} @ {} ({}s) — {}".format(
+                    c['clip_id'].split('_')[-1],
+                    c['composite_score'],
+                    c['clip_type'],
+                    ts,
+                    int(c['duration']),
+                    c['hook'][:50],
+                )
+            )
+
+        click.echo(f"\nClip files:  {clips_dir}")
+        click.echo(f"Report:      {clips_dir / 'clips_v3_report.md'}")
+        click.echo(f"Results:     {clips_dir / 'clips_v3_results.json'}")
+
+    except Exception as e:
+        logger.exception("Pipeline V3 failed")
+        raise click.ClickException(f"Pipeline V3 failed: {e}")
 
 
 # =============================================================================

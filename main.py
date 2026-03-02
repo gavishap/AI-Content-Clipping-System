@@ -1027,20 +1027,35 @@ def pipeline(
 @click.option('--max-clips', default=20, help='Maximum clips to return')
 @click.option('--min-score', default=45.0, help='Minimum composite score (0-100)')
 @click.option('--profile', default=None, help='Path to nick_clip_profile.json')
-def find_clips_v3(transcript_path: str, output: str, max_clips: int, min_score: float, profile: str):
+@click.option('-Q', '--query', default=None, help='Search query to focus clip detection on a specific topic')
+def find_clips_v3(transcript_path: str, output: str, max_clips: int, min_score: float, profile: str, query: str):
     """
     Find clip-worthy moments using V3 data-driven pipeline.
     
     Uses the Nick Clip Profile (extracted from 15 real clips) with a 5-pass pipeline:
     detect -> score -> filter -> reflect -> debate -> rank
     
-    Input: Enhanced transcript (.json or .txt) from enhance-transcript command.
-    Output: Ranked clips with per-pass explanations in the output directory.
+    Optional --query flag focuses detection on a specific topic or instruction.
     
-    Example:
-        python main.py find-clips-v3 outputs/episode_258_transcript_v3.json -o outputs/clips_v3
+    \b
+    Examples:
+        python main.py find-clips-v3 transcript_v3.json -o outputs/clips_v3
+        python main.py find-clips-v3 transcript_v3.json -Q "child marriage"
     """
     from src.clip_finder_v3 import find_clips_sync
+    
+    query_intent = None
+    if query:
+        from src.story_clip_finder import StoryClipFinder, QueryIntent
+        from src.conversation_segmenter_v3 import segment_conversations
+        import asyncio
+        click.echo(f"Interpreting query: \"{query}\"")
+        conv_map = segment_conversations(transcript_path)
+        async def _interpret():
+            finder = StoryClipFinder()
+            return await finder.interpret_query(query, conv_map)
+        query_intent = asyncio.run(_interpret())
+        click.echo(f"  -> type={query_intent.query_type}, topic={query_intent.topic}")
     
     click.echo("=" * 60)
     click.echo("CLIP FINDER V3 — Data-Driven 5-Pass Pipeline")
@@ -1049,6 +1064,8 @@ def find_clips_v3(transcript_path: str, output: str, max_clips: int, min_score: 
     click.echo(f"Output dir: {output}")
     click.echo(f"Max clips:  {max_clips}")
     click.echo(f"Min score:  {min_score}")
+    if query:
+        click.echo(f"Query:      {query}")
     click.echo()
     
     start_time = time.time()
@@ -1060,6 +1077,7 @@ def find_clips_v3(transcript_path: str, output: str, max_clips: int, min_score: 
             max_clips=max_clips,
             min_score=min_score,
             profile_path=profile,
+            query_intent=query_intent,
         )
         
         elapsed = time.time() - start_time
@@ -1085,6 +1103,382 @@ def find_clips_v3(transcript_path: str, output: str, max_clips: int, min_score: 
 
 
 # =============================================================================
+# TOPIC MAPPER (Standalone)
+# =============================================================================
+
+@cli.command('map-topics')
+@click.argument('transcript_path', type=click.Path(exists=True))
+@click.option('-o', '--output', default='outputs/topic_map.json', help='Output JSON path')
+def map_topics(transcript_path: str, output: str):
+    """
+    Create a granular topic map of every conversation in a stream.
+
+    Segments each conversation into named topic blocks (~15-60s each)
+    using Claude. Output is designed for timeline visualization.
+
+    \b
+    Example:
+        python main.py map-topics outputs/episode_258_transcript_v3.json
+    """
+    from src.conversation_segmenter_v3 import segment_conversations
+    from src.topic_mapper import TopicMapper, save_topic_map
+    import asyncio
+
+    click.echo("=" * 60)
+    click.echo("TOPIC MAPPER — LLM-Enhanced Topic Segmentation")
+    click.echo("=" * 60)
+    click.echo(f"Transcript: {transcript_path}")
+    click.echo(f"Output:     {output}")
+    click.echo()
+
+    start_time = time.time()
+
+    try:
+        click.echo("Step 1: Segmenting conversations...")
+        conv_map = segment_conversations(transcript_path)
+        click.echo(f"  Found {conv_map.total_conversations} conversations")
+
+        click.echo("\nStep 2: Mapping topics (Claude LLM)...")
+
+        async def _run():
+            mapper = TopicMapper()
+            return await mapper.map_topics(transcript_path, conv_map)
+
+        topic_map = asyncio.run(_run())
+        save_topic_map(topic_map, output)
+
+        elapsed = time.time() - start_time
+        click.echo()
+        click.echo("=" * 60)
+        click.echo(f"COMPLETE — {topic_map.total_topics} topic blocks in {elapsed:.1f}s")
+        click.echo("=" * 60)
+        click.echo(f"  Unique topics: {len(topic_map.all_topic_ids)}")
+        click.echo(f"  Output: {output}")
+
+    except Exception as e:
+        logger.exception("Topic Mapper failed")
+        raise click.ClickException(f"Topic Mapper failed: {e}")
+
+
+# =============================================================================
+# UNIFIED CLIP FINDER (Scout + Editor)
+# =============================================================================
+
+@cli.command('find-clips-unified')
+@click.argument('transcript_path', type=click.Path(exists=True))
+@click.option('-o', '--output', default='outputs/clips_unified', help='Output directory')
+@click.option('--max-clips', default=15, help='Maximum clips to return')
+@click.option('-Q', '--query', default=None, help='Free-form search query')
+@click.option('--video', default=None, type=click.Path(exists=True),
+              help='Source video to extract clips from')
+@click.option('--quality', default='medium', type=click.Choice(['fast', 'medium', 'high']))
+@click.option('--skip-topics', is_flag=True, help='Skip LLM topic mapping (faster, cheaper)')
+def find_clips_unified(transcript_path: str, output: str, max_clips: int,
+                       query: str, video: str, quality: str, skip_topics: bool):
+    """
+    Find clips using the unified Scout + Editor two-pass system.
+
+    Finds both continuous clips and composite (stitched) clips in one pipeline.
+    The AI decides the best assembly strategy for each candidate.
+
+    Optionally maps topics first for richer analysis (disable with --skip-topics).
+
+    \b
+    Examples:
+        python main.py find-clips-unified transcript_v3.json
+        python main.py find-clips-unified transcript_v3.json -Q "child marriage"
+        python main.py find-clips-unified transcript_v3.json --video stream.mp4
+    """
+    from src.conversation_segmenter_v3 import segment_conversations, save_conversation_map
+    from src.topic_mapper import TopicMapper, save_topic_map
+    from src.clip_finder_unified import ClipFinderUnified
+    from src.extractor import ClipExtractor
+    import asyncio
+
+    click.echo("=" * 60)
+    click.echo("UNIFIED CLIP FINDER — Scout + Editor Pipeline")
+    click.echo("=" * 60)
+    click.echo(f"Transcript:  {transcript_path}")
+    click.echo(f"Output dir:  {output}")
+    click.echo(f"Max clips:   {max_clips}")
+    if query:
+        click.echo(f"Query:       {query}")
+    if video:
+        click.echo(f"Video:       {video}")
+    click.echo(f"Topic map:   {'skip' if skip_topics else 'enabled'}")
+    click.echo()
+
+    start_time = time.time()
+    out_dir = Path(output)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        # Step 1: Segment conversations
+        click.echo("Step 1: Segmenting conversations...")
+        conv_map = segment_conversations(transcript_path)
+        save_conversation_map(conv_map, str(out_dir / "conversation_map.json"))
+        click.echo(f"  Found {conv_map.total_conversations} conversations")
+
+        # Step 2: Topic mapping (optional) — includes continuity index
+        topic_map = None
+        if not skip_topics:
+            click.echo("\nStep 2: Mapping topics (Claude LLM, batched)...")
+            async def _map():
+                mapper = TopicMapper()
+                return await mapper.map_topics(transcript_path, conv_map)
+            topic_map = asyncio.run(_map())
+            save_topic_map(topic_map, str(out_dir / "topic_map.json"))
+            click.echo(f"  Mapped {topic_map.total_topics} topic blocks")
+            if topic_map.continuity_index:
+                recurring_count = sum(
+                    len(v) for v in topic_map.continuity_index.recurring.values()
+                )
+                click.echo(f"  Recurring topics (composite candidates): {recurring_count}")
+        else:
+            click.echo("\nStep 2: Topic mapping skipped")
+
+        # Step 3: Find clips (Scout + Editor)
+        click.echo("\nStep 3: Finding clips (Scout + Editor)...")
+        async def _find():
+            finder = ClipFinderUnified()
+            intent = None
+            if query:
+                from src.story_clip_finder import StoryClipFinder
+                sf = StoryClipFinder(client=finder.client)
+                intent = await sf.interpret_query(query, conv_map)
+                click.echo(f"  Query interpreted: type={intent.query_type}, topic={intent.topic}")
+            clips = await finder.find_clips(
+                transcript_path, conv_map, topic_map, intent, max_clips,
+            )
+            finder.save_results(clips, output, intent, topic_map)
+            return clips, intent
+
+        clips, intent = asyncio.run(_find())
+
+        # Step 4: Extract clips if video provided
+        extracted = 0
+        if video and clips:
+            click.echo(f"\nStep 4: Extracting video clips...")
+            clips_out = out_dir / "clips"
+            clips_out.mkdir(exist_ok=True)
+
+            async def _extract():
+                nonlocal extracted
+                extractor = ClipExtractor(video, str(clips_out))
+                for clip in clips:
+                    if clip.assembly == "composite" and len(clip.segments) > 1:
+                        segs = [{"start_time": s.start_time, "end_time": s.end_time}
+                                for s in clip.segments]
+                        result = await extractor.extract_composite_clip(
+                            segments=segs,
+                            clip_id=clip.clip_id,
+                            title=clip.title,
+                            quality=quality,
+                        )
+                    else:
+                        result = await extractor.extract_clip(
+                            {
+                                "clip_id": clip.clip_id,
+                                "start_time": clip.start_time,
+                                "end_time": clip.end_time,
+                                "title": clip.title,
+                            },
+                            quality=quality,
+                        )
+                    if result.status == "success":
+                        extracted += 1
+                        click.echo(f"  {clip.clip_id}: {result.file_path} ({result.file_size_mb:.1f}MB)")
+
+            asyncio.run(_extract())
+            click.echo(f"  Extracted: {extracted}/{len(clips)}")
+
+        elapsed = time.time() - start_time
+        continuous = sum(1 for c in clips if c.assembly == "continuous")
+        composite = sum(1 for c in clips if c.assembly == "composite")
+
+        click.echo()
+        click.echo("=" * 60)
+        click.echo(f"COMPLETE — {len(clips)} clips in {elapsed:.1f}s")
+        click.echo("=" * 60)
+        click.echo(f"  Continuous: {continuous}")
+        click.echo(f"  Composite:  {composite}")
+        if video:
+            click.echo(f"  Extracted:  {extracted}")
+        click.echo()
+
+        for i, clip in enumerate(clips, 1):
+            st = clip.start_time
+            ts = "{}:{:02d}:{:02d}".format(
+                int(st // 3600), int((st % 3600) // 60), int(st % 60)
+            )
+            tag = "C" if clip.assembly == "composite" else " "
+            refs_tag = f" [{len(clip.topic_references)} refs]" if clip.topic_references else ""
+            click.echo(
+                f"  #{i} [{clip.score:.1f}/10] {clip.clip_type} [{tag}] @ {ts} "
+                f"({clip.total_duration:.0f}s){refs_tag} -- {clip.hook[:50]}"
+            )
+            if clip.composite_opportunities:
+                click.echo(f"      ^ composite opportunity available")
+
+        click.echo(f"\nResults: {output}/unified_clips_results.json")
+        click.echo(f"Report:  {output}/unified_clips_report.md")
+        if video and extracted:
+            click.echo(f"Clips:   {output}/clips/")
+
+    except Exception as e:
+        logger.exception("Unified Clip Finder failed")
+        raise click.ClickException(f"Unified Clip Finder failed: {e}")
+
+
+# =============================================================================
+# STORY CLIP FINDER (Composite Clips) [Legacy -- kept for backward compat]
+# =============================================================================
+
+@cli.command('find-story-clips')
+@click.argument('transcript_path', type=click.Path(exists=True))
+@click.option('-o', '--output', default='outputs/stories', help='Output directory')
+@click.option('--max-stories', default=10, help='Maximum story clips to return')
+@click.option('-Q', '--query', default=None, help='Free-form search query')
+@click.option('--video', default=None, type=click.Path(exists=True),
+              help='Source video file to extract clips from. Without this, only timestamps + report are saved.')
+@click.option('--quality', default='medium', type=click.Choice(['fast', 'medium', 'high']),
+              help='Video extraction quality')
+def find_story_clips(transcript_path: str, output: str, max_stories: int,
+                     query: str, video: str, quality: str):
+    """
+    Find composite "story clips" -- multi-segment clips stitched from non-contiguous
+    moments within the same conversation (contradictions, gotcha arcs, escalations).
+
+    Requires an enhanced transcript. Automatically segments into conversations first.
+    
+    If --video is provided, extracts and stitches the actual MP4 clips.
+    Multi-segment stories become a single composite video; single-segment stories
+    become standalone clips.
+
+    \b
+    Examples:
+        python main.py find-story-clips transcript_v3.json -o outputs/stories
+        python main.py find-story-clips transcript_v3.json -Q "find where he supports Iran then contradicts it"
+        python main.py find-story-clips transcript_v3.json --video stream.mp4 -Q "child marriage"
+    """
+    from src.conversation_segmenter_v3 import segment_conversations, save_conversation_map
+    from src.story_clip_finder import StoryClipFinder
+    from src.extractor import ClipExtractor
+    import asyncio
+
+    click.echo("=" * 60)
+    click.echo("STORY CLIP FINDER — Composite Clip Detection")
+    click.echo("=" * 60)
+    click.echo(f"Transcript:  {transcript_path}")
+    click.echo(f"Output dir:  {output}")
+    click.echo(f"Max stories: {max_stories}")
+    if query:
+        click.echo(f"Query:       {query}")
+    if video:
+        click.echo(f"Video:       {video}")
+        click.echo(f"Quality:     {quality}")
+    else:
+        click.echo(f"Video:       (none — timestamps only, no clip extraction)")
+    click.echo()
+
+    start_time = time.time()
+
+    try:
+        # Step 1: Segment conversations
+        click.echo("Step 1: Segmenting conversations...")
+        conv_map = segment_conversations(transcript_path)
+        click.echo(f"  Found {conv_map.total_conversations} conversations")
+
+        out_dir = Path(output)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        save_conversation_map(conv_map, str(out_dir / "conversation_map.json"))
+
+        # Step 2: Find stories
+        async def _run():
+            finder = StoryClipFinder()
+            intent = None
+            if query:
+                click.echo(f"\nStep 2: Interpreting query...")
+                intent = await finder.interpret_query(query, conv_map)
+                click.echo(f"  -> type={intent.query_type}, topic={intent.topic}")
+                if intent.search_targets:
+                    for t in intent.search_targets:
+                        click.echo(f"  -> target: {t.label} = {t.description}")
+
+            click.echo(f"\nStep 3: Finding story connections...")
+            stories = await finder.find_stories(transcript_path, conv_map, intent, max_stories)
+            finder.save_results(stories, output, intent)
+            return stories, intent
+
+        stories, intent = asyncio.run(_run())
+
+        elapsed_find = time.time() - start_time
+
+        # Step 4: Extract clips if video provided
+        extracted_count = 0
+        if video and stories:
+            click.echo(f"\nStep 4: Extracting video clips...")
+            clips_dir = out_dir / "clips"
+            clips_dir.mkdir(exist_ok=True)
+
+            async def _extract():
+                nonlocal extracted_count
+                extractor = ClipExtractor(video, str(clips_dir))
+                for story in stories:
+                    if len(story.segments) >= 2:
+                        # Multi-segment: composite stitch
+                        segs = [{"start_time": s.start_time, "end_time": s.end_time}
+                                for s in story.segments]
+                        result = await extractor.extract_composite_clip(
+                            segments=segs,
+                            clip_id=story.story_id,
+                            title=story.title,
+                            quality=quality,
+                        )
+                        if result.status == "success":
+                            extracted_count += 1
+                            click.echo(f"  Composite: {result.file_path} ({result.file_size_mb:.1f}MB)")
+                    else:
+                        # Single segment: one-off clip
+                        clip_data = {
+                            "clip_id": story.story_id,
+                            "start_time": story.segments[0].start_time,
+                            "end_time": story.segments[0].end_time,
+                            "title": story.title,
+                        }
+                        result = await extractor.extract_clip(clip_data, quality=quality)
+                        if result.status == "success":
+                            extracted_count += 1
+                            click.echo(f"  Clip: {result.file_path} ({result.file_size_mb:.1f}MB)")
+
+            asyncio.run(_extract())
+            click.echo(f"  Extracted: {extracted_count}/{len(stories)} clips")
+
+        elapsed = time.time() - start_time
+        click.echo()
+        click.echo("=" * 60)
+        click.echo(f"COMPLETE — {len(stories)} stories found in {elapsed:.1f}s")
+        click.echo("=" * 60)
+        click.echo()
+
+        for i, story in enumerate(stories, 1):
+            segs = len(story.segments)
+            click.echo(
+                f"  #{i} [{story.score:.1f}/10] {story.story_type.upper()} — {story.title[:50]}"
+                f" ({segs} segments, {story.total_duration:.0f}s)"
+            )
+
+        click.echo(f"\nResults: {output}/story_clips_results.json")
+        click.echo(f"Report:  {output}/story_clips_report.md")
+        if video and extracted_count:
+            click.echo(f"Clips:   {output}/clips/")
+
+    except Exception as e:
+        logger.exception("Story Clip Finder failed")
+        raise click.ClickException(f"Story Clip Finder failed: {e}")
+
+
+# =============================================================================
 # V3 FULL PIPELINE (URL -> Clips)
 # =============================================================================
 
@@ -1097,8 +1491,10 @@ def find_clips_v3(transcript_path: str, output: str, max_clips: int, min_score: 
 @click.option('--min-score', default=40.0, help='Minimum composite score (0-100)')
 @click.option('--quality', '-q', default='medium',
               type=click.Choice(['fast', 'medium', 'high']), help='Clip video quality')
+@click.option('-Q', '--query', default=None, help='Free-form search query to focus clip detection')
+@click.option('--stories/--no-stories', default=True, help='Also find composite story clips')
 def pipeline_v3(url: str, max_clips: int, output: str, voiceprint: str,
-                min_score: float, quality: str):
+                min_score: float, quality: str, query: str, stories: bool):
     """
     Full end-to-end V3 pipeline: YouTube URL -> extracted clips.
 
@@ -1124,6 +1520,10 @@ def pipeline_v3(url: str, max_clips: int, output: str, voiceprint: str,
     )
     from src.clip_finder_v3 import ClipFinderV3
     from src.extractor import ClipExtractor
+    from src.conversation_segmenter_v3 import segment_conversations, save_conversation_map
+    from src.story_clip_finder import StoryClipFinder
+    from src.topic_mapper import TopicMapper, save_topic_map
+    from src.clip_finder_unified import ClipFinderUnified
 
     pipeline_start = time.time()
     api_key = get_deepgram_api_key()
@@ -1135,6 +1535,9 @@ def pipeline_v3(url: str, max_clips: int, output: str, voiceprint: str,
     click.echo(f"Max clips:  {max_clips}")
     click.echo(f"Min score:  {min_score}")
     click.echo(f"Quality:    {quality}")
+    if query:
+        click.echo(f"Query:      {query}")
+    click.echo(f"Stories:    {'yes' if stories else 'no'}")
     click.echo()
 
     try:
@@ -1277,73 +1680,125 @@ def pipeline_v3(url: str, max_clips: int, output: str, voiceprint: str,
         click.echo(f"   Time:  {(time.time() - step_start) / 60:.1f} min")
 
         # =================================================================
-        # STEP 5: V3 Clip Finder (5-pass)
+        # STEP 5: Segment Conversations
         # =================================================================
         click.echo("\n" + "=" * 50)
-        click.echo("STEP 5/6: Finding clips (5-pass AI pipeline)")
+        click.echo("STEP 5/8: Segmenting conversations")
         click.echo("=" * 50)
         step_start = time.time()
 
-        results_path = clips_dir / "clips_v3_results.json"
-        if results_path.exists():
-            click.echo(f"   Using existing clip results")
-            with open(results_path, 'r', encoding='utf-8') as f:
-                clip_results_data = json.load(f)
-            clip_count = clip_results_data.get('total_clips', 0)
-            clips_list = None  # will use JSON for extraction
+        conv_map = segment_conversations(str(enhanced_path))
+        save_conversation_map(conv_map, str(output_dir / "conversation_map.json"))
+        click.echo(f"   Conversations: {conv_map.total_conversations}")
+        click.echo(f"   Time: {time.time() - step_start:.1f}s")
+
+        # =================================================================
+        # STEP 6: Topic Mapping (LLM)
+        # =================================================================
+        click.echo("\n" + "=" * 50)
+        click.echo("STEP 6/8: Mapping topics (Claude LLM)")
+        click.echo("=" * 50)
+        step_start = time.time()
+
+        topic_map_path = output_dir / "topic_map.json"
+        if topic_map_path.exists():
+            click.echo("   Using existing topic map")
+            with open(topic_map_path, 'r', encoding='utf-8') as f:
+                from src.topic_mapper import TopicMap as TM, ConversationTopics as CT, TopicBlock as TB
+                raw_tm = json.load(f)
+                convs_topics = []
+                for ct_raw in raw_tm.get("conversations", []):
+                    blocks = [TB(**tb) for tb in ct_raw.get("topics", [])]
+                    convs_topics.append(CT(
+                        conversation_id=ct_raw["conversation_id"],
+                        guest_speakers=ct_raw.get("guest_speakers", []),
+                        topics=blocks,
+                        topic_summary=ct_raw.get("topic_summary", ""),
+                        unique_topic_ids=ct_raw.get("unique_topic_ids", []),
+                    ))
+                topic_map = TM(
+                    conversations=convs_topics,
+                    all_topic_ids=raw_tm.get("all_topic_ids", []),
+                    total_topics=raw_tm.get("total_topics", 0),
+                    source_file=raw_tm.get("source_file", ""),
+                )
         else:
-            finder = ClipFinderV3()
-            clips_list = asyncio.run(finder.find_clips(
-                str(enhanced_path),
-                max_clips=max_clips,
-                min_score=min_score,
-            ))
-            finder.save_results(clips_list, str(clips_dir))
-            clip_count = len(clips_list)
-            claude_cost = finder.client.cost_tracker.total_cost
-            click.echo(f"   Claude cost: ${claude_cost:.2f}")
+            async def _map_topics():
+                mapper = TopicMapper()
+                return await mapper.map_topics(str(enhanced_path), conv_map)
+            topic_map = asyncio.run(_map_topics())
+            save_topic_map(topic_map, str(topic_map_path))
 
-        click.echo(f"   Clips found: {clip_count}")
-        click.echo(f"   Time:  {(time.time() - step_start) / 60:.1f} min")
+        click.echo(f"   Topic blocks: {topic_map.total_topics}")
+        click.echo(f"   Unique topics: {len(topic_map.all_topic_ids)}")
+        click.echo(f"   Time: {(time.time() - step_start) / 60:.1f} min")
 
         # =================================================================
-        # STEP 6: Extract video clips with FFmpeg
+        # STEP 7: Unified Clip Finder (Scout + Editor)
         # =================================================================
         click.echo("\n" + "=" * 50)
-        click.echo("STEP 6/6: Extracting video clips")
+        click.echo("STEP 7/8: Finding clips (Scout + Editor)")
         click.echo("=" * 50)
         step_start = time.time()
 
-        # Load clip data for extraction
-        with open(clips_dir / "clips_v3_results.json", 'r', encoding='utf-8') as f:
-            clip_results_data = json.load(f)
-
-        extract_list = []
-        for c in clip_results_data['clips']:
-            clip_type = c['clip_type']
-            hook_short = c['hook'][:40]
-            extract_list.append({
-                'clip_id': c['clip_id'],
-                'start_time': c['start_time'],
-                'end_time': c['end_time'],
-                'title': "{}_{}".format(clip_type, hook_short),
-            })
-
-        async def _extract():
-            extractor = ClipExtractor(str(video_path), str(clips_dir))
-            results = await extractor.extract_clips(
-                extract_list, quality=quality, padding_start=0.5, padding_end=0.5
+        async def _find_clips():
+            finder = ClipFinderUnified()
+            intent = None
+            if query:
+                click.echo(f"   Interpreting query: \"{query}\"")
+                sf = StoryClipFinder(client=finder.client)
+                intent = await sf.interpret_query(query, conv_map)
+                click.echo(f"   -> type={intent.query_type}, topic={intent.topic}")
+            clips = await finder.find_clips(
+                str(enhanced_path), conv_map, topic_map, intent, max_clips,
             )
-            extractor.save_results(results, str(clips_dir / "extraction_results.json"))
-            return results
+            finder.save_results(clips, str(clips_dir), intent, topic_map)
+            return clips
 
-        extraction_results = asyncio.run(_extract())
-        success_count = sum(1 for r in extraction_results if r.status == "success")
-        total_mb = sum(r.file_size_mb for r in extraction_results)
+        unified_clips = asyncio.run(_find_clips())
+        continuous = sum(1 for c in unified_clips if c.assembly == "continuous")
+        composite = sum(1 for c in unified_clips if c.assembly == "composite")
+        click.echo(f"   Found: {len(unified_clips)} clips ({continuous} continuous, {composite} composite)")
+        click.echo(f"   Time: {(time.time() - step_start) / 60:.1f} min")
 
-        click.echo(f"   Extracted: {success_count}/{len(extraction_results)} clips")
-        click.echo(f"   Total size: {total_mb:.1f} MB")
-        click.echo(f"   Time:  {time.time() - step_start:.1f}s")
+        # =================================================================
+        # STEP 8: Extract video clips with FFmpeg
+        # =================================================================
+        click.echo("\n" + "=" * 50)
+        click.echo("STEP 8/8: Extracting video clips")
+        click.echo("=" * 50)
+        step_start = time.time()
+
+        success_count = 0
+        async def _extract():
+            nonlocal success_count
+            extractor = ClipExtractor(str(video_path), str(clips_dir))
+            for clip in unified_clips:
+                if clip.assembly == "composite" and len(clip.segments) > 1:
+                    segs = [{"start_time": s.start_time, "end_time": s.end_time}
+                            for s in clip.segments]
+                    result = await extractor.extract_composite_clip(
+                        segments=segs,
+                        clip_id=clip.clip_id,
+                        title=clip.title,
+                        quality=quality,
+                    )
+                else:
+                    result = await extractor.extract_clip(
+                        {
+                            "clip_id": clip.clip_id,
+                            "start_time": clip.start_time,
+                            "end_time": clip.end_time,
+                            "title": clip.title,
+                        },
+                        quality=quality,
+                    )
+                if result.status == "success":
+                    success_count += 1
+
+        asyncio.run(_extract())
+        click.echo(f"   Extracted: {success_count}/{len(unified_clips)} clips")
+        click.echo(f"   Time: {time.time() - step_start:.1f}s")
 
         # =================================================================
         # SUMMARY
@@ -1354,32 +1809,33 @@ def pipeline_v3(url: str, max_clips: int, output: str, voiceprint: str,
         click.echo("=" * 60)
         click.echo(f"   Video:        {video_title}")
         click.echo(f"   Duration:     {duration_min:.1f} min")
-        click.echo(f"   Clips:        {success_count}")
+        click.echo(f"   Topics:       {topic_map.total_topics} blocks")
+        click.echo(f"   Clips:        {len(unified_clips)} ({continuous} continuous, {composite} composite)")
+        click.echo(f"   Extracted:    {success_count}")
+        if query:
+            click.echo(f"   Query:        {query}")
         click.echo(f"   Total time:   {total_elapsed / 60:.1f} min")
         click.echo(f"   Output:       {output_dir}")
         click.echo()
 
-        # Print clip table
         click.echo("Top clips:")
-        for c in clip_results_data['clips']:
-            st = c['start_time']
+        for i, c in enumerate(unified_clips, 1):
+            st = c.start_time
             ts = "{}:{:02d}:{:02d}".format(
                 int(st // 3600), int((st % 3600) // 60), int(st % 60)
             )
+            tag = "[C]" if c.assembly == "composite" else "   "
             click.echo(
-                "  #{} [{:.0f}/100] {} @ {} ({}s) — {}".format(
-                    c['clip_id'].split('_')[-1],
-                    c['composite_score'],
-                    c['clip_type'],
-                    ts,
-                    int(c['duration']),
-                    c['hook'][:50],
+                "  #{} [{:.1f}/10] {} {} @ {} ({}s) -- {}".format(
+                    i, c.score, c.clip_type, tag, ts,
+                    int(c.total_duration), c.hook[:50],
                 )
             )
 
         click.echo(f"\nClip files:  {clips_dir}")
-        click.echo(f"Report:      {clips_dir / 'clips_v3_report.md'}")
-        click.echo(f"Results:     {clips_dir / 'clips_v3_results.json'}")
+        click.echo(f"Topic map:   {topic_map_path}")
+        click.echo(f"Report:      {clips_dir / 'unified_clips_report.md'}")
+        click.echo(f"Results:     {clips_dir / 'unified_clips_results.json'}")
 
     except Exception as e:
         logger.exception("Pipeline V3 failed")

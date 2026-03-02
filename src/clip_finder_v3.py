@@ -236,6 +236,7 @@ class ClipFinderV3:
         self,
         profile_path: Optional[str] = None,
         client: Optional[ClaudeClient] = None,
+        query_intent: Optional[Any] = None,
     ):
         """
         Initialize the clip finder.
@@ -243,6 +244,7 @@ class ClipFinderV3:
         Args:
             profile_path: Path to nick_clip_profile.json (defaults to project root)
             client: Optional pre-configured ClaudeClient
+            query_intent: Optional QueryIntent from story_clip_finder for query-aware detection
         """
         if profile_path is None:
             profile_path = str(Path(__file__).parent.parent / "nick_clip_profile.json")
@@ -250,6 +252,7 @@ class ClipFinderV3:
 
         self.client = client or ClaudeClient()
         self.debate = MultiAgentDebate(self.client)
+        self.query_intent = query_intent
 
         # Load prompt templates
         self._detection_prompt = _load_prompt("clip_detection_v3.md")
@@ -257,6 +260,31 @@ class ClipFinderV3:
         self._reflection_prompt = _load_prompt("clip_reflection_v3.md")
 
         logger.info("ClipFinderV3 initialized")
+
+    def _build_query_section(self) -> str:
+        """Build the query injection text for prompts, or empty string if no query."""
+        if self.query_intent is None:
+            return ""
+
+        intent = self.query_intent
+        lines = ["\n## USER'S SEARCH REQUEST"]
+
+        if intent.topic:
+            lines.append(f"The user is looking for clips about: \"{intent.topic}\"")
+            lines.append("PRIORITIZE moments related to this topic. Score boost: +2 to preliminary_score.")
+            lines.append("Standard clip quality rules still apply.")
+
+        if hasattr(intent, "search_targets") and intent.search_targets:
+            lines.append("\nSPECIFIC MOMENTS TO FIND:")
+            for t in intent.search_targets:
+                lines.append(f"- {t.label}: {t.description}")
+            lines.append("For each candidate, note which search target it matches (if any) in a \"matches_target\" field.")
+            lines.append("Moments matching a search target get +3 to preliminary_score.")
+
+        if hasattr(intent, "raw_query") and intent.raw_query:
+            lines.append(f"\nOriginal request: \"{intent.raw_query}\"")
+
+        return "\n".join(lines) + "\n"
 
     # =========================================================================
     # STEP 0: Load Transcript
@@ -353,7 +381,10 @@ class ClipFinderV3:
 
     async def _detect_candidates(self, window: TranscriptWindow) -> List[ClipCandidate]:
         """Send a window to Claude and get raw clip candidates."""
+        query_section = self._build_query_section()
         prompt = self._detection_prompt.replace("{{TRANSCRIPT}}", window.formatted_text)
+        if query_section:
+            prompt = prompt.replace("## TRANSCRIPT WINDOW", query_section + "\n## TRANSCRIPT WINDOW")
 
         try:
             response = await self.client.complete_json(
@@ -468,11 +499,14 @@ class ClipFinderV3:
         ]
         segment_text = _format_utterances(segment)
 
+        query_section = self._build_query_section()
         prompt = self._scoring_prompt
         prompt = prompt.replace("{{CLIP_TYPE}}", candidate.clip_type)
         prompt = prompt.replace("{{PATTERN}}", candidate.pattern)
         prompt = prompt.replace("{{PRELIMINARY_SCORE}}", str(candidate.pass_trail[0].details.get("preliminary_score", "?")))
         prompt = prompt.replace("{{TRANSCRIPT_SEGMENT}}", segment_text)
+        if query_section:
+            prompt += f"\n{query_section}"
 
         try:
             response = await self.client.complete_json(
@@ -623,6 +657,7 @@ class ClipFinderV3:
             if u.start > candidate.end_time and u.start < context_end
         ]
 
+        query_section = self._build_query_section()
         prompt = self._reflection_prompt
         prompt = prompt.replace("{{CLIP_TYPE}}", candidate.clip_type)
         prompt = prompt.replace("{{START_TIME}}", _format_time(candidate.start_time))
@@ -634,6 +669,8 @@ class ClipFinderV3:
         prompt = prompt.replace("{{CONTEXT_BEFORE}}", _format_utterances(before_utts) or "(no prior context)")
         prompt = prompt.replace("{{CLIP_SEGMENT}}", _format_utterances(clip_utts))
         prompt = prompt.replace("{{CONTEXT_AFTER}}", _format_utterances(after_utts) or "(no following context)")
+        if query_section:
+            prompt += f"\n{query_section}"
 
         try:
             response = await self.client.complete_json(
@@ -995,10 +1032,11 @@ def find_clips_sync(
     max_clips: int = 20,
     min_score: float = 45.0,
     profile_path: Optional[str] = None,
+    query_intent: Optional[Any] = None,
 ) -> List[ClipCandidate]:
     """Synchronous entry point for CLI usage."""
     async def _run():
-        finder = ClipFinderV3(profile_path=profile_path)
+        finder = ClipFinderV3(profile_path=profile_path, query_intent=query_intent)
         clips = await finder.find_clips(
             transcript_path=transcript_path,
             max_clips=max_clips,

@@ -52,6 +52,22 @@ outputs/
 *.mov
 *.mkv
 
+# Google credentials (NEVER commit these)
+token.json
+client_secret*.json
+nick-matau-clipper-*.json
+*.credentials.json
+
+# Frontend build
+frontend/node_modules/
+frontend/.next/
+
+# Cursor/agent artifacts
+.cursor/plans/
+agent-transcripts/
+assets/
+terminals/
+
 # Logs
 *.log
 logs/

@@ -12,6 +12,13 @@ yt-dlp>=2024.0.0
 # Speaker identification
 aiohttp>=3.9.0
 
+# Google APIs (worker pipeline)
+gspread>=6.0.0
+google-auth>=2.0.0
+
+# NLP (topic dedup)
+sentence-transformers>=2.0.0
+
 # Utils
 pyyaml>=6.0
 python-dotenv>=1.0.0

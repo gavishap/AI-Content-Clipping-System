@@ -276,6 +276,165 @@ class ClipExtractor:
         logger.info(f"Results saved to: {output_path}")
 
 
+    async def extract_composite_clip(
+        self,
+        segments: List[Dict[str, Any]],
+        clip_id: str,
+        title: str = "composite",
+        quality: str = "medium",
+    ) -> ClipResult:
+        """
+        Extract multiple non-contiguous segments and merge into one video.
+
+        Uses FFmpeg's concat demuxer for fast lossless concatenation when
+        segments come from the same source video.
+
+        Args:
+            segments: List of dicts with start_time, end_time (in seconds)
+            clip_id: Unique ID for this composite clip
+            title: Display title
+            quality: "fast", "medium", or "high"
+
+        Returns:
+            ClipResult with the merged output path
+        """
+        import tempfile
+
+        if not segments:
+            return ClipResult(
+                clip_id=clip_id, file_path="", title=title,
+                start_time=0, end_time=0, duration_seconds=0,
+                file_size_mb=0, status="failed", error="No segments provided",
+            )
+
+        safe_title = self._sanitize_filename(title)
+        output_file = self.output_dir / f"{clip_id}_{safe_title}.mp4"
+        preset = self.QUALITY_PRESETS.get(quality, self.QUALITY_PRESETS["medium"])
+
+        temp_dir = Path(tempfile.mkdtemp(prefix="clipmerge_"))
+        temp_files: List[Path] = []
+
+        try:
+            # Extract each segment to a temp file
+            for i, seg in enumerate(segments):
+                start = max(0, float(seg["start_time"]) - 0.3)
+                end = float(seg["end_time"]) + 0.3
+                duration = end - start
+                temp_out = temp_dir / f"seg_{i:03d}.mp4"
+
+                cmd = [
+                    self.ffmpeg_path, "-y",
+                    "-ss", self._format_timestamp(start),
+                    "-i", str(self.input_video),
+                    "-t", str(duration),
+                    "-c:v", "libx264",
+                    "-preset", preset["preset"],
+                    "-crf", str(preset["crf"]),
+                    "-c:a", "aac",
+                    "-b:a", preset["audio_bitrate"],
+                    "-pix_fmt", "yuv420p",
+                    str(temp_out),
+                ]
+
+                process = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await process.communicate()
+
+                if process.returncode != 0:
+                    error_msg = stderr.decode("utf-8", errors="ignore")[-300:]
+                    logger.error(f"Segment {i} extraction failed: {error_msg}")
+                    continue
+
+                if temp_out.exists():
+                    temp_files.append(temp_out)
+
+            if not temp_files:
+                return ClipResult(
+                    clip_id=clip_id, file_path="", title=title,
+                    start_time=segments[0].get("start_time", 0),
+                    end_time=segments[-1].get("end_time", 0),
+                    duration_seconds=0, file_size_mb=0,
+                    status="failed", error="All segment extractions failed",
+                )
+
+            # Write concat demuxer file
+            concat_file = temp_dir / "concat.txt"
+            with open(concat_file, "w", encoding="utf-8") as f:
+                for tf in temp_files:
+                    safe_path = str(tf).replace("\\", "/")
+                    f.write(f"file '{safe_path}'\n")
+
+            # Merge with concat demuxer
+            merge_cmd = [
+                self.ffmpeg_path, "-y",
+                "-f", "concat", "-safe", "0",
+                "-i", str(concat_file),
+                "-c", "copy",
+                "-movflags", "+faststart",
+                str(output_file),
+            ]
+
+            process = await asyncio.create_subprocess_exec(
+                *merge_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode("utf-8", errors="ignore")[-300:]
+                logger.error(f"Concat merge failed: {error_msg}")
+                return ClipResult(
+                    clip_id=clip_id, file_path="", title=title,
+                    start_time=segments[0].get("start_time", 0),
+                    end_time=segments[-1].get("end_time", 0),
+                    duration_seconds=0, file_size_mb=0,
+                    status="failed", error=f"Merge failed: {error_msg}",
+                )
+
+            total_dur = sum(
+                float(s.get("end_time", 0)) - float(s.get("start_time", 0))
+                for s in segments
+            )
+            file_size_mb = output_file.stat().st_size / (1024 * 1024)
+
+            logger.info(f"Composite clip merged: {output_file.name} ({file_size_mb:.1f}MB, {len(segments)} segments)")
+
+            return ClipResult(
+                clip_id=clip_id,
+                file_path=str(output_file),
+                title=title,
+                start_time=segments[0].get("start_time", 0),
+                end_time=segments[-1].get("end_time", 0),
+                duration_seconds=round(total_dur, 2),
+                file_size_mb=round(file_size_mb, 2),
+                status="success",
+            )
+
+        except Exception as e:
+            logger.error(f"Composite extraction failed: {e}")
+            return ClipResult(
+                clip_id=clip_id, file_path="", title=title,
+                start_time=0, end_time=0, duration_seconds=0,
+                file_size_mb=0, status="failed", error=str(e),
+            )
+        finally:
+            # Clean up temp files
+            for tf in temp_files:
+                try:
+                    tf.unlink()
+                except OSError:
+                    pass
+            try:
+                (temp_dir / "concat.txt").unlink(missing_ok=True)
+                temp_dir.rmdir()
+            except OSError:
+                pass
+
+
 async def extract_top_clips(
     video_path: str,
     clips_json: str,

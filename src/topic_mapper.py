@@ -415,9 +415,9 @@ def _get_embedding_model():
         _embedding_available = True
         logger.info("  Loaded sentence-transformer model for topic dedup")
         return _embedding_model
-    except ImportError:
+    except Exception as e:
         _embedding_available = False
-        logger.info("  sentence-transformers not installed, using word-overlap fallback")
+        logger.info(f"  Embedding model unavailable ({type(e).__name__}), using word-overlap fallback")
         return None
 
 

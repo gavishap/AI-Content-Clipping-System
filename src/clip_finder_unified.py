@@ -682,12 +682,12 @@ class ClipFinderUnified:
         if not final_segments:
             return self._build_clip_from_scout(raw, prog, utterances, continuity, candidate_idx)
 
-        # Merge segments that are very close together (< 10s gap)
+        # Merge segments that are very close together (< 20s gap -- not worth cutting)
         merged: List[SegmentProposal] = [final_segments[0]]
         for seg in final_segments[1:]:
             prev = merged[-1]
             gap = seg.start_time - prev.end_time
-            if gap < 10:
+            if gap < 20:
                 prev.end_time = seg.end_time
                 prev.duration = round(prev.end_time - prev.start_time, 2)
                 if seg.purpose in ("knockout", "nick_counter"):

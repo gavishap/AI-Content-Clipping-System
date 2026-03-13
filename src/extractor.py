@@ -106,8 +106,8 @@ class ClipExtractor:
     async def extract_clip(
         self,
         clip: Dict[str, Any],
-        padding_start: float = 0.5,
-        padding_end: float = 0.5,
+        padding_start: float = 10.0,
+        padding_end: float = 10.0,
         quality: str = "medium"
     ) -> ClipResult:
         """
@@ -217,8 +217,8 @@ class ClipExtractor:
         self,
         clips: List[Dict[str, Any]],
         quality: str = "medium",
-        padding_start: float = 0.5,
-        padding_end: float = 0.5
+        padding_start: float = 10.0,
+        padding_end: float = 10.0
     ) -> List[ClipResult]:
         """
         Extract multiple clips sequentially.
@@ -317,8 +317,8 @@ class ClipExtractor:
         try:
             # Extract each segment to a temp file
             for i, seg in enumerate(segments):
-                start = max(0, float(seg["start_time"]) - 0.3)
-                end = float(seg["end_time"]) + 0.3
+                start = max(0, float(seg["start_time"]) - 10.0)
+                end = float(seg["end_time"]) + 10.0
                 duration = end - start
                 temp_out = temp_dir / f"seg_{i:03d}.mp4"
 

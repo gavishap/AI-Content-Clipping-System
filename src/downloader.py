@@ -8,8 +8,10 @@ This module handles downloading videos from YouTube URLs.
 """
 
 import logging
+import base64
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -17,6 +19,42 @@ from typing import Optional
 import yt_dlp
 
 logger = logging.getLogger(__name__)
+
+# Cached path so we only write cookies once per process
+_cookies_file_path: Optional[str] = None
+
+
+def _get_cookies_file() -> Optional[str]:
+    """
+    Write YouTube cookies to a temp file if YOUTUBE_COOKIES_B64 env var is set.
+    Returns the path to the cookies file, or None if not configured.
+    """
+    global _cookies_file_path
+    if _cookies_file_path and Path(_cookies_file_path).exists():
+        return _cookies_file_path
+
+    cookies_b64 = os.environ.get("YOUTUBE_COOKIES_B64")
+    if not cookies_b64:
+        # Also check for a direct file path
+        cookies_path = os.environ.get("YOUTUBE_COOKIES_PATH")
+        if cookies_path and Path(cookies_path).exists():
+            return cookies_path
+        return None
+
+    try:
+        cookies_data = base64.b64decode(cookies_b64).decode("utf-8")
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix="_youtube_cookies.txt",
+            delete=False, encoding="utf-8"
+        )
+        tmp.write(cookies_data)
+        tmp.close()
+        _cookies_file_path = tmp.name
+        logger.info(f"YouTube cookies written to: {_cookies_file_path}")
+        return _cookies_file_path
+    except Exception as e:
+        logger.warning(f"Failed to write YouTube cookies: {e}")
+        return None
 
 
 @dataclass
@@ -93,6 +131,12 @@ class YouTubeDownloader:
             'logger': _YtDlpLogger(),
             'progress_hooks': [self._progress_hook],
         }
+        
+        # Inject YouTube cookies if available (needed for Railway/datacenter IPs)
+        cookies_file = _get_cookies_file()
+        if cookies_file:
+            ydl_opts['cookiefile'] = cookies_file
+            logger.info(f"Using YouTube cookies from: {cookies_file}")
         
         # Only add merge format if FFmpeg is available
         if self._is_ffmpeg_available():

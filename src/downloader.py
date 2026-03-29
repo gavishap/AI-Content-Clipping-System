@@ -133,9 +133,11 @@ class YouTubeDownloader:
             'nocheckcertificate': True,
             'ignoreerrors': False,
             'geo_bypass': True,
+            # bgutil PO token provider - connects to local server at port 4416
+            # Automatically used by yt-dlp when bgutil-ytdlp-pot-provider is installed
         }
-        
-        # Inject YouTube cookies if available (needed for Railway/datacenter IPs)
+
+        # Inject YouTube cookies if provided (optional, bgutil handles auth)
         cookies_file = _get_cookies_file()
         if cookies_file:
             ydl_opts['cookiefile'] = cookies_file

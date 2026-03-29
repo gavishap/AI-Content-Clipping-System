@@ -6,8 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install yt-dlp
-RUN pip install --no-cache-dir yt-dlp
+# Install latest yt-dlp (update regularly to stay ahead of YouTube bot detection)
+RUN pip install --no-cache-dir --upgrade yt-dlp
 
 WORKDIR /app
 

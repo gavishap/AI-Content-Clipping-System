@@ -80,7 +80,7 @@ class YouTubeDownloader:
     
     # Default format: best video + best audio, falls back to best combined
     # For livestream replays, this will merge video+audio streams using FFmpeg
-    DEFAULT_FORMAT = "bestvideo+bestaudio/best"
+    DEFAULT_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
     
     def __init__(self, output_dir: str = "./data"):
         """
@@ -130,6 +130,9 @@ class YouTubeDownloader:
             'extract_flat': False,
             'logger': _YtDlpLogger(),
             'progress_hooks': [self._progress_hook],
+            'nocheckcertificate': True,
+            'ignoreerrors': False,
+            'geo_bypass': True,
         }
         
         # Inject YouTube cookies if available (needed for Railway/datacenter IPs)

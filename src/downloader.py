@@ -138,52 +138,56 @@ class YouTubeDownloader:
             'nocheckcertificate': True,
             'ignoreerrors': False,
             'geo_bypass': True,
-            # bgutil PO token provider - connects to local server at port 4416
-            # Automatically used by yt-dlp when bgutil-ytdlp-pot-provider is installed
         }
 
-        # Inject YouTube cookies if provided (optional, bgutil handles auth)
-        cookies_file = _get_cookies_file()
-        if cookies_file:
-            ydl_opts['cookiefile'] = cookies_file
-            logger.info(f"Using YouTube cookies from: {cookies_file}")
-        
-        # Only add merge format if FFmpeg is available
         if self._is_ffmpeg_available():
             ydl_opts['merge_output_format'] = 'mp4'
         
         logger.info(f"Starting download: {url}")
-        
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Extract info first to get metadata
-                info = ydl.extract_info(url, download=True)
-                
-                if info is None:
-                    raise RuntimeError("Failed to extract video info")
-                
-                # Get the actual downloaded file path
-                video_path = self._get_downloaded_path(info, output_template)
-                
-                result = DownloadResult(
-                    video_path=str(video_path),
-                    title=info.get('title', 'Unknown'),
-                    duration_seconds=float(info.get('duration', 0)),
-                    channel=info.get('channel', info.get('uploader', 'Unknown')),
-                    video_id=info.get('id', ''),
-                    thumbnail_url=info.get('thumbnail'),
-                    description=info.get('description'),
-                )
-                
-                logger.info(f"Download complete: {result.title} ({result.duration_seconds:.0f}s)")
-                return result
-                
-        except yt_dlp.utils.DownloadError as e:
-            logger.error(f"Download failed: {e}")
-            raise RuntimeError(f"Failed to download video: {e}") from e
-        except Exception as e:
-            logger.error(f"Unexpected error during download: {e}")
-            raise RuntimeError(f"Download failed: {e}") from e
+
+        # Try without cookies first (bgutil PO token handles auth).
+        # Cookies from a different IP cause YouTube to reject the request,
+        # so only use them as a last-resort fallback.
+        attempts = [
+            ("bgutil/deno (no cookies)", None),
+        ]
+        cookies_file = _get_cookies_file()
+        if cookies_file:
+            attempts.append(("with cookies", cookies_file))
+
+        last_error = None
+        for label, cfile in attempts:
+            opts = dict(ydl_opts)
+            if cfile:
+                opts['cookiefile'] = cfile
+            logger.info(f"Attempt: {label}")
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=True)
+
+                    if info is None:
+                        raise RuntimeError("Failed to extract video info")
+
+                    video_path = self._get_downloaded_path(info, output_template)
+
+                    result = DownloadResult(
+                        video_path=str(video_path),
+                        title=info.get('title', 'Unknown'),
+                        duration_seconds=float(info.get('duration', 0)),
+                        channel=info.get('channel', info.get('uploader', 'Unknown')),
+                        video_id=info.get('id', ''),
+                        thumbnail_url=info.get('thumbnail'),
+                        description=info.get('description'),
+                    )
+
+                    logger.info(f"Download complete: {result.title} ({result.duration_seconds:.0f}s)")
+                    return result
+
+            except (yt_dlp.utils.DownloadError, RuntimeError) as e:
+                logger.warning(f"Attempt '{label}' failed: {e}")
+                last_error = e
+
+        raise RuntimeError(f"Failed to download video: {last_error}") from last_error
     
     def get_video_info(self, url: str) -> dict:
         """

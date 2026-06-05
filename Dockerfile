@@ -49,7 +49,8 @@ RUN cd /opt/bgutil/server && npm ci && npx tsc
 
 # Verify plugin is detected
 RUN python -c "import yt_dlp; print('yt-dlp version:', yt_dlp.version.__version__)" && \
-    python -c "from yt_dlp_plugins.extractor.getpot_bgutil_http import BgUtilHTTPPotProviderRH; print('bgutil plugin: OK')"
+    python -c "import yt_dlp_plugins.extractor.getpot_bgutil_http; print('bgutil HTTP plugin: OK')" && \
+    python -c "import yt_dlp_plugins.extractor.getpot_bgutil_script; print('bgutil script plugin: OK')"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Copy all project files

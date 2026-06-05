@@ -78,9 +78,14 @@ class YouTubeDownloader:
         result = downloader.download("https://youtube.com/watch?v=...")
     """
     
-    # Default format: best video + best audio, falls back to best combined
-    # For livestream replays, this will merge video+audio streams using FFmpeg
-    DEFAULT_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
+    # Default format: best video + best audio, with broad fallback chain
+    DEFAULT_FORMAT = (
+        "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+        "bestvideo[ext=mp4]+bestaudio/"
+        "bestvideo+bestaudio/"
+        "best[ext=mp4]/"
+        "best"
+    )
     
     def __init__(self, output_dir: str = "./data"):
         """

@@ -1,12 +1,21 @@
 FROM python:3.11-slim
 
-# System deps: ffmpeg, git, nodejs (required for bgutil PO token generator)
+# System deps: ffmpeg, git, curl, unzip
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
-    nodejs \
-    npm \
+    curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20 LTS (required for bgutil PO token generator)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install deno (yt-dlp's preferred JS runtime for n-challenge solving)
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
+ENV DENO_DIR=/tmp/deno_cache
 
 # Install latest yt-dlp (update regularly to stay ahead of YouTube bot detection)
 RUN pip install --no-cache-dir --upgrade yt-dlp

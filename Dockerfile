@@ -35,8 +35,10 @@ RUN pip install --no-cache-dir \
     sentence-transformers
 
 # ─── BGUTIL PO TOKEN PROVIDER (bypasses YouTube bot detection) ───────────────
-# Install the yt-dlp plugin that connects to the bgutil server
-RUN pip install --no-cache-dir bgutil-ytdlp-pot-provider
+# Install the POT plugin framework and bgutil provider
+RUN pip install --no-cache-dir \
+    yt-dlp-get-pot>=0.2.0 \
+    bgutil-ytdlp-pot-provider>=1.3.1
 
 # Clone and build the bgutil server (Node.js server that generates PO tokens)
 RUN git clone --depth 1 --branch 1.3.1 \
@@ -44,6 +46,10 @@ RUN git clone --depth 1 --branch 1.3.1 \
     /opt/bgutil
 
 RUN cd /opt/bgutil/server && npm ci && npx tsc
+
+# Verify plugin is detected
+RUN python -c "import yt_dlp; print('yt-dlp version:', yt_dlp.version.__version__)" && \
+    python -c "from yt_dlp_plugins.extractor.getpot_bgutil_http import BgUtilHTTPPotProviderRH; print('bgutil plugin: OK')"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Copy all project files

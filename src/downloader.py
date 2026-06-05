@@ -138,6 +138,12 @@ class YouTubeDownloader:
             'nocheckcertificate': True,
             'ignoreerrors': False,
             'geo_bypass': True,
+            'verbose': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['web'],
+                },
+            },
         }
 
         if self._is_ffmpeg_available():

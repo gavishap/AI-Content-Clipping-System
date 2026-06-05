@@ -59,8 +59,6 @@ def run_pipeline(video_url: str, query: str | None, max_clips: int) -> dict:
     from src.ingester import VideoIngester
     from src.transcriber import Transcriber
     from src.voice_fingerprinter import (
-        VoiceFingerprinter, Voiceprint,
-        merge_pyannote_speakers_with_transcript,
         collapse_words_to_utterances, build_readable_transcript,
         build_structured_transcript,
     )
@@ -90,9 +88,22 @@ def run_pipeline(video_url: str, query: str | None, max_clips: int) -> dict:
     elif _is_drive_url(video_url):
         dl_dir = WORK_DIR / "download"
         dl_dir.mkdir(parents=True, exist_ok=True)
-        local_path = str(dl_dir / "source_video.mp4")
+
+        # Fetch real filename from Drive metadata
+        from src.google_drive import _extract_file_id, _get_service
+        file_id = _extract_file_id(video_url)
+        drive_name = "source_video.mp4"
+        if file_id:
+            try:
+                svc = _get_service()
+                meta = svc.files().get(fileId=file_id, fields="name").execute()
+                drive_name = meta.get("name", drive_name)
+            except Exception as e:
+                logger.warning(f"Could not fetch Drive filename: {e}")
+
+        local_path = str(dl_dir / drive_name)
         download_from_drive(video_url, local_path)
-        video_title = "Drive_Video"
+        video_title = Path(drive_name).stem.replace("_", " ")
         video_src = Path(local_path)
     else:
         raise ValueError(f"Unsupported URL type: {video_url}")
@@ -136,24 +147,31 @@ def run_pipeline(video_url: str, query: str | None, max_clips: int) -> dict:
     logger.info(f"  Words: {len(transcript_data.get('words', []))}")
 
     # ------------------------------------------------------------------
-    # STEP 4: Enhance with Pyannote
+    # STEP 4: Build enhanced transcript from Deepgram diarization
     # ------------------------------------------------------------------
-    logger.info("STEP 4: Enhancing transcript (Pyannote)...")
+    logger.info("STEP 4: Building enhanced transcript (Deepgram diarization)...")
     enhanced_path = output_dir / "enhanced_transcript.json"
     if not enhanced_path.exists():
-        vp = Voiceprint.load(VOICEPRINT_PATH)
-        fingerprinter = VoiceFingerprinter()
-        segments, speaker_mapping, job_id = fingerprinter.identify_speakers_sync(
-            str(audio_path),
-            {"nick": vp.voiceprint_id},
-            match_threshold=50,
-        )
-        enhanced = merge_pyannote_speakers_with_transcript(
-            segments, speaker_mapping, transcript_data, time_offset=0.0,
-        )
+        import copy
+        enhanced = copy.deepcopy(transcript_data)
+
+        # Map Deepgram speaker IDs to labels; the most talkative is "nick"
+        from collections import Counter
+        spk_counts: Counter = Counter()
+        for w in enhanced.get("words", []):
+            spk_counts[w.get("speaker", 0)] += 1
+
+        nick_id = spk_counts.most_common(1)[0][0] if spk_counts else 0
+        for w in enhanced.get("words", []):
+            sid = w.get("speaker", 0)
+            w["speaker_name"] = "nick" if sid == nick_id else f"speaker_{sid}"
+
         utterances = collapse_words_to_utterances(enhanced, max_pause=2.0)
-        merge_meta = enhanced.get("merge_metadata", {})
-        structured = build_structured_transcript(utterances, metadata=merge_meta)
+        structured = build_structured_transcript(utterances, metadata={
+            "method": "deepgram_diarization",
+            "nick_speaker_id": nick_id,
+            "total_speakers": len(spk_counts),
+        })
         with open(enhanced_path, "w", encoding="utf-8") as f:
             json.dump(structured, f, indent=2, ensure_ascii=False)
 

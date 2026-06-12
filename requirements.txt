@@ -7,7 +7,8 @@ anthropic>=0.18.0  # Claude API for V3 pipeline
 
 # Video processing
 ffmpeg-python>=0.2.0
-yt-dlp>=2024.0.0
+# [default] extra bundles yt-dlp-ejs (JS challenge solver scripts) required for YouTube
+yt-dlp[default]>=2024.0.0
 
 # Speaker identification
 aiohttp>=3.9.0

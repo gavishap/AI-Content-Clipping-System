@@ -17,8 +17,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh
 ENV DENO_DIR=/tmp/deno_cache
 
-# Install latest yt-dlp (update regularly to stay ahead of YouTube bot detection)
-RUN pip install --no-cache-dir --upgrade yt-dlp
+# Install latest yt-dlp WITH [default] extra (bundles yt-dlp-ejs JS challenge
+# solver scripts). Required because deno runs sandboxed and can't fetch them.
+RUN pip install --no-cache-dir --upgrade "yt-dlp[default]"
 
 WORKDIR /app
 
@@ -47,8 +48,9 @@ RUN git clone --depth 1 --branch 1.3.1 \
 
 RUN cd /opt/bgutil/server && npm ci && npx tsc
 
-# Verify plugin is detected
+# Verify plugins + EJS challenge solver scripts are present
 RUN python -c "import yt_dlp; print('yt-dlp version:', yt_dlp.version.__version__)" && \
+    python -c "import yt_dlp_ejs; print('yt-dlp-ejs (JS challenge scripts): OK')" && \
     python -c "import yt_dlp_plugins.extractor.getpot_bgutil_http; print('bgutil HTTP plugin: OK')" && \
     python -c "import yt_dlp_plugins.extractor.getpot_bgutil_script; print('bgutil script plugin: OK')"
 # ─────────────────────────────────────────────────────────────────────────────

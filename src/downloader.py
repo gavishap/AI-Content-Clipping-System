@@ -139,6 +139,9 @@ class YouTubeDownloader:
             'ignoreerrors': False,
             'geo_bypass': True,
             'verbose': True,
+            # Fall back to fetching EJS challenge-solver scripts from GitHub if
+            # the bundled yt-dlp-ejs package is missing or version-mismatched.
+            'remote_components': ['ejs:github'],
             'extractor_args': {
                 'youtube': {
                     'player_client': ['web'],

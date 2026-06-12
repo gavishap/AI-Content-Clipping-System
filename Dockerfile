@@ -8,8 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20 LTS (required for bgutil PO token generator)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# Install Node.js 22 LTS (bgutil PO token generator + EJS n-challenge runtime;
+# yt-dlp's EJS solver requires node >= 22.0.0)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 

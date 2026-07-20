@@ -169,7 +169,7 @@ class TestClaudeClient:
     def test_init_with_key(self):
         """Test initialization with API key."""
         client = ClaudeClient(api_key="test-key-123")
-        assert client.model == "claude-sonnet-4-20250514"
+        assert client.model == "claude-sonnet-4-6"
         assert client.max_retries == 5
     
     @pytest.mark.asyncio
@@ -181,7 +181,7 @@ class TestClaudeClient:
         mock_response = MagicMock()
         mock_response.content = [MagicMock(text="Test response")]
         mock_response.usage = MagicMock(input_tokens=50, output_tokens=25)
-        mock_response.model = "claude-sonnet-4-20250514"
+        mock_response.model = "claude-sonnet-4-6"
         mock_response.stop_reason = "end_turn"
         
         client.client.messages.create = AsyncMock(return_value=mock_response)

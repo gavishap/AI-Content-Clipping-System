@@ -39,8 +39,11 @@ logger = logging.getLogger(__name__)
 COST_PER_MILLION_INPUT = 3.00  # $3 per 1M input tokens
 COST_PER_MILLION_OUTPUT = 15.00  # $15 per 1M output tokens
 
-# Default model
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+# Default model. Overridable via ANTHROPIC_MODEL env var so a future model
+# retirement is a one-line env change instead of a code edit.
+# NOTE: claude-sonnet-4-20250514 was RETIRED by Anthropic on 2026-06-15;
+# claude-sonnet-4-6 is the official recommended replacement (same $3/$15 pricing).
+DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 # Rate limiting defaults
 DEFAULT_RPM = 50  # Requests per minute
